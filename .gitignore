@@ -7,3 +7,5 @@
 /.vscode*
 desktop.ini
 .idea
+
+/target
