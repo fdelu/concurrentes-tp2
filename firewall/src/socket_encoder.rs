@@ -1,8 +1,8 @@
-use std::net::{SocketAddr, ToSocketAddrs};
 use crate::firewall::FIREWALL_ADDRESS;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use crate::packet::Packet;
-use crate::UdpTrait;
+use common::udp_trait::UdpTrait;
 
 pub struct SocketEncoder<T: UdpTrait> {
     socket: T,
@@ -14,7 +14,12 @@ impl<T: UdpTrait> UdpTrait for SocketEncoder<T> {
     fn send_to(&self, buf: &[u8], dst: SocketAddr) -> std::io::Result<usize> {
         let src = self.socket.local_addr()?;
         let packet = Packet::new(src, dst, buf.to_vec());
-        self.socket.send_to(&packet.to_raw(), FIREWALL_ADDRESS.parse().expect("Failed to parse firewall address"))
+        self.socket.send_to(
+            &packet.to_raw(),
+            FIREWALL_ADDRESS
+                .parse()
+                .expect("Failed to parse firewall address"),
+        )
     }
 
     fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {

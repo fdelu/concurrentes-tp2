@@ -1,8 +1,9 @@
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::str::FromStr;
 
-use firewall::{Firewall, UDPFactory, UdpTrait};
+use common::udp_trait::{UDPFactory, UdpTrait};
 use firewall::BlockTwoHosts;
+use firewall::Firewall;
 
 const SRC_ADDR: &str = "127.0.0.1:1234";
 const DST_ADDR: &str = "127.0.0.2:5555";

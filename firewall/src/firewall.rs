@@ -1,13 +1,12 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::{UDPFactory, UdpTrait};
 use crate::packet::Packet;
 use crate::rules::Rule;
+use common::udp_trait::{UDPFactory, UdpTrait};
 
 pub const FIREWALL_ADDRESS: &str = "127.0.0.1:1883";
 pub const ADDR_LENGTH: usize = 14;
-
 
 pub struct Firewall {
     rules: Vec<Box<dyn Rule>>,
@@ -23,11 +22,11 @@ pub struct Firewall {
 // address specified in the metadata of the packet
 impl Firewall {
     pub fn new<T>(socket_factory: T) -> Self
-        where T: UDPFactory
+    where
+        T: UDPFactory,
     {
-        let addrs = [
-            SocketAddr::from_str(FIREWALL_ADDRESS).expect("Failed to parse firewall address"),
-        ];
+        let addrs =
+            [SocketAddr::from_str(FIREWALL_ADDRESS).expect("Failed to parse firewall address")];
 
         let socket = socket_factory.create_udp_socket(&addrs[..]);
 
@@ -64,7 +63,12 @@ impl Firewall {
     }
 
     fn send_packet(&mut self, packet: &Packet) {
-        self.socket.send_to(&packet.data, SocketAddr::from_str(&packet.dst.to_string()).unwrap()).unwrap();
+        self.socket
+            .send_to(
+                &packet.data,
+                SocketAddr::from_str(&packet.dst.to_string()).unwrap(),
+            )
+            .unwrap();
         for rule in &mut self.rules {
             rule.notify_send(packet);
         }

@@ -9,7 +9,9 @@ pub trait UdpTrait {
 
     fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)>;
 
-    fn bind<U: ToSocketAddrs>(addr: U) -> std::io::Result<Self> where Self: Sized;
+    fn bind<U: ToSocketAddrs>(addr: U) -> std::io::Result<Self>
+    where
+        Self: Sized;
 
     fn local_addr(&self) -> std::io::Result<SocketAddr>;
 }
@@ -23,7 +25,10 @@ impl UdpTrait for UdpSocket {
         self.recv_from(buf)
     }
 
-    fn bind<U: ToSocketAddrs>(addr: U) -> std::io::Result<Self> where Self: Sized {
+    fn bind<U: ToSocketAddrs>(addr: U) -> std::io::Result<Self>
+    where
+        Self: Sized,
+    {
         UdpSocket::bind(addr)
     }
 

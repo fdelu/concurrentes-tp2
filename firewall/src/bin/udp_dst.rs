@@ -1,13 +1,12 @@
+use common::udp_trait::UdpTrait;
+use firewall::SocketEncoder;
 use std::net::{SocketAddr, UdpSocket};
 use std::str::FromStr;
-use firewall::{SocketEncoder, UdpTrait};
 
 const DST_ADDR: &str = "127.0.0.2:5555";
 
 fn main() {
-    let addrs = [
-        SocketAddr::from_str(DST_ADDR).unwrap()
-    ];
+    let addrs = [SocketAddr::from_str(DST_ADDR).unwrap()];
 
     let socket: SocketEncoder<UdpSocket> = SocketEncoder::bind(&addrs[..]).unwrap();
 
