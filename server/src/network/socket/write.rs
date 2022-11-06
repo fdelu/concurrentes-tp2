@@ -2,7 +2,7 @@ use tokio::{io::AsyncWriteExt, sync::mpsc::UnboundedReceiver};
 
 use crate::network::error::SocketError;
 
-use super::OnEnd;
+use super::{OnEnd, WriterSend};
 
 pub(crate) const MAGIC_NUMBER: [u8; 2] = [0x52, 0x56];
 pub(crate) const LEN_BYTES: usize = 2; // u16, no cambiar
@@ -10,12 +10,12 @@ const MAX_MESSAGE_SIZE: usize = 1 << (8 * LEN_BYTES);
 
 pub struct SocketWrite<T: AsyncWriteExt + Unpin> {
     writer: T,
-    rx: UnboundedReceiver<Vec<u8>>,
+    rx: UnboundedReceiver<WriterSend>,
     on_end: OnEnd,
 }
 
 impl<T: AsyncWriteExt + Unpin> SocketWrite<T> {
-    pub fn new(writer: T, rx: UnboundedReceiver<Vec<u8>>, on_end: OnEnd) -> Self {
+    pub(crate) fn new(writer: T, rx: UnboundedReceiver<WriterSend>, on_end: OnEnd) -> Self {
         Self { writer, rx, on_end }
     }
 
@@ -32,7 +32,13 @@ impl<T: AsyncWriteExt + Unpin> SocketWrite<T> {
 
     pub async fn run(mut self) {
         while let Some(data) = self.rx.recv().await {
-            if self.write(data).await.is_err() {
+            let mut err = false;
+            let result = self.write(data.data).await;
+            err |= result.is_err();
+            if let Some(tx) = data.result {
+                err |= tx.send(result).is_err();
+            }
+            if err {
                 break;
             }
         }
@@ -48,7 +54,7 @@ mod tests {
     };
 
     use super::*;
-    use tokio::sync::mpsc::unbounded_channel;
+    use tokio::sync::{mpsc::unbounded_channel, oneshot};
     use tokio_test::{block_on, io::Builder};
 
     #[test]
@@ -59,7 +65,12 @@ mod tests {
         expected.extend(&input);
         let mock_writer = Builder::new().write(&expected).build();
         let (tx, rx) = unbounded_channel();
-        tx.send(input.to_vec()).unwrap();
+        let (result_tx, result_rx) = oneshot::channel();
+        tx.send(WriterSend {
+            data: input.to_vec(),
+            result: Some(result_tx),
+        })
+        .unwrap();
         drop(tx);
 
         let ended = Arc::new(AtomicBool::new(false));
@@ -67,9 +78,14 @@ mod tests {
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
         let socket_read = SocketWrite::new(mock_writer, rx, on_end);
 
-        block_on(socket_read.run());
+        let res = block_on(async move {
+            socket_read.run().await;
+            result_rx.await
+        })
+        .unwrap();
 
         assert!(ended.load(Relaxed));
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -86,8 +102,18 @@ mod tests {
 
         let mock_writer = Builder::new().write(&expected_1).write(&expected_2).build();
         let (tx, rx) = unbounded_channel();
-        tx.send(input_1.to_vec()).unwrap();
-        tx.send(input_2.to_vec()).unwrap();
+        let (result_tx_1, result_rx_1) = oneshot::channel();
+        let (result_tx_2, result_rx_2) = oneshot::channel();
+        tx.send(WriterSend {
+            data: input_1.to_vec(),
+            result: Some(result_tx_1),
+        })
+        .unwrap();
+        tx.send(WriterSend {
+            data: input_2.to_vec(),
+            result: Some(result_tx_2),
+        })
+        .unwrap();
         drop(tx);
 
         let ended = Arc::new(AtomicBool::new(false));
@@ -95,9 +121,14 @@ mod tests {
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
         let socket_read = SocketWrite::new(mock_writer, rx, on_end);
 
-        block_on(socket_read.run());
+        let (res_1, res_2) = block_on(async move {
+            socket_read.run().await;
+            (result_rx_1.await.unwrap(), result_rx_2.await.unwrap())
+        });
 
         assert!(ended.load(Relaxed));
+        assert!(res_1.is_ok());
+        assert!(res_2.is_ok());
     }
 
     #[test]
@@ -109,7 +140,12 @@ mod tests {
 
         let mock_writer = Builder::new().build(); // Expect nothing
         let (tx, rx) = unbounded_channel();
-        tx.send(input).unwrap();
+        let (result_tx, result_rx) = oneshot::channel();
+        tx.send(WriterSend {
+            data: input.to_vec(),
+            result: Some(result_tx),
+        })
+        .unwrap();
         drop(tx);
 
         let ended = Arc::new(AtomicBool::new(false));
@@ -117,8 +153,12 @@ mod tests {
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
         let socket_read = SocketWrite::new(mock_writer, rx, on_end);
 
-        block_on(socket_read.run());
+        let res = block_on(async move {
+            socket_read.run().await;
+            result_rx.await.unwrap()
+        });
 
         assert!(ended.load(Relaxed));
+        assert!(res.is_err());
     }
 }

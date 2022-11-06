@@ -28,7 +28,7 @@ impl ConnectionHandler {
     }
 
     async fn send(socket: Addr<Socket>, msg: SendPacket) -> Result<(), SocketError> {
-        Ok(socket.send(SocketSend { data: msg.data }).await??)
+        socket.send(SocketSend { data: msg.data }).await?
     }
 
     fn create_socket(this_actor: Addr<Self>, addr: SocketAddr) -> SocketStatus<Self> {

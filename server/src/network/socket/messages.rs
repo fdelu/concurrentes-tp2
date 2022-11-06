@@ -1,11 +1,20 @@
 use actix::Message;
 use std::net::SocketAddr;
-use tokio::sync::mpsc::error::SendError;
+use tokio::sync::{mpsc::error::SendError, oneshot};
 
-#[derive(Message)]
-#[rtype(result = "Result<(), SendError<Vec<u8>>>")]
+use crate::network::error::SocketError;
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<(), SocketError>")]
 pub struct SocketSend {
     pub data: Vec<u8>,
+}
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<(), SendError<Vec<u8>>>")]
+pub(crate) struct WriterSend {
+    pub data: Vec<u8>,
+    pub result: Option<oneshot::Sender<Result<(), SocketError>>>,
 }
 
 #[derive(Message)]

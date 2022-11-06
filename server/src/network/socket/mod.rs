@@ -2,11 +2,11 @@ use std::marker::Send;
 use std::net::SocketAddr;
 
 use actix::dev::ToEnvelope;
-use actix::{Actor, Addr, Context, Handler};
+use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
 use actix_rt::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::{
-    mpsc::{error::SendError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
 
@@ -25,7 +25,7 @@ pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
 pub struct Socket {
-    write_sender: UnboundedSender<Vec<u8>>,
+    write_sender: UnboundedSender<WriterSend>,
     stop_tx: Option<oneshot::Sender<()>>,
 }
 
@@ -65,7 +65,7 @@ impl Socket {
     async fn setup_runners<A>(
         actor: Addr<A>,
         my_addr: SocketAddr,
-        write_receiver: UnboundedReceiver<Vec<u8>>,
+        write_receiver: UnboundedReceiver<WriterSend>,
         stop_rx: oneshot::Receiver<()>,
     ) -> Result<(), SocketError>
     where
@@ -117,9 +117,18 @@ impl Socket {
 }
 
 impl Handler<SocketSend> for Socket {
-    type Result = Result<(), SendError<Vec<u8>>>;
+    type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Self::Result {
-        self.write_sender.send(msg.data)
+        let (result_tx, result_rx) = oneshot::channel();
+
+        if let Err(e) = self.write_sender.send(WriterSend {
+            data: msg.data,
+            result: Some(result_tx),
+        }) {
+            Box::pin(async move { Err(e.into()) }.into_actor(self))
+        } else {
+            Box::pin(async move { Ok(result_rx.await??) }.into_actor(self))
+        }
     }
 }
