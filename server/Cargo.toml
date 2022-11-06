@@ -14,3 +14,4 @@ common = { path = "../common" }
 
 [dev-dependencies]
 tokio-test = "0.4.2"
+tokio = { features = ["macros", "io-util"] }

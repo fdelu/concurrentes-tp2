@@ -1,4 +1,4 @@
-mod socket;
+mod network;
 
 fn main() {
     println!("Hello, world!");
