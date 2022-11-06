@@ -32,7 +32,7 @@ impl<T: AsyncWriteExt + Unpin> SocketWrite<T> {
 
     pub async fn run(mut self) {
         while let Some(data) = self.rx.recv().await {
-            if let Err(_e) = self.write(data).await {
+            if self.write(data).await.is_err() {
                 break;
             }
         }

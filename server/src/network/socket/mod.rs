@@ -48,8 +48,9 @@ impl Socket {
 
         let (stop_tx, stop_rx) = oneshot::channel();
         spawn(async move {
-            if let Err(_) =
-                Self::setup_runners(actor_read_to, socket_addr, write_receiver, stop_rx).await
+            if Self::setup_runners(actor_read_to, socket_addr, write_receiver, stop_rx)
+                .await
+                .is_err()
             {
                 actor_end.do_send(SocketEnd { addr: socket_addr });
             }
