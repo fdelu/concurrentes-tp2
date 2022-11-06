@@ -20,13 +20,15 @@ mod messages;
 mod socket;
 mod status;
 
-struct ConnectionlessTCP {
+#[allow(dead_code)]
+pub struct ConnectionlessTCP {
     actor: Addr<ConnectionHandler>,
     receiver: UnboundedReceiver<SocketReceived>,
     addr: io::Result<SocketAddr>,
     listener_handle: JoinHandle<()>,
 }
 
+#[allow(dead_code)]
 impl ConnectionlessTCP {
     fn on_connection(actor: Addr<ConnectionHandler>) -> OnConnection {
         Box::new(move |stream, addr| actor.do_send(AddStream { addr, stream }))
@@ -47,7 +49,7 @@ impl ConnectionlessTCP {
         let received = self.receiver.recv().await.ok_or_else(|| {
             io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Error receiving: internal channel is closed"),
+                "Error receiving: internal channel is closed",
             )
         })?;
         buf[..received.data.len()].copy_from_slice(&received.data);
@@ -74,5 +76,11 @@ impl ConnectionlessTCP {
             Ok(addr) => Ok(addr),
             Err(ref e) => Err(io::Error::new(e.kind(), e.to_string())),
         }
+    }
+}
+
+impl Drop for ConnectionlessTCP {
+    fn drop(&mut self) {
+        self.listener_handle.abort();
     }
 }

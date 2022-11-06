@@ -139,7 +139,7 @@ impl Handler<SocketSend> for Socket {
         }) {
             Box::pin(async move { Err(e.into()) }.into_actor(self))
         } else {
-            Box::pin(async move { Ok(result_rx.await??) }.into_actor(self))
+            Box::pin(async move { result_rx.await? }.into_actor(self))
         }
     }
 }
