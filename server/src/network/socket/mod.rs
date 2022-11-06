@@ -24,6 +24,8 @@ use super::error::SocketError;
 pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
+pub use self::write::MAX_MESSAGE_SIZE;
+
 pub struct Socket {
     write_sender: UnboundedSender<WriterSend>,
     stop_tx: Option<oneshot::Sender<()>>,
@@ -38,7 +40,11 @@ impl Actor for Socket {
 }
 
 impl Socket {
-    pub fn new<A>(actor_read_to: Addr<A>, socket_addr: SocketAddr) -> Socket
+    pub fn new<A>(
+        actor_read_to: Addr<A>,
+        socket_addr: SocketAddr,
+        stream: Option<TcpStream>,
+    ) -> Socket
     where
         A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
         A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
@@ -48,7 +54,7 @@ impl Socket {
 
         let (stop_tx, stop_rx) = oneshot::channel();
         spawn(async move {
-            if Self::setup_runners(actor_read_to, socket_addr, write_receiver, stop_rx)
+            if Self::setup_runners(actor_read_to, stream, socket_addr, write_receiver, stop_rx)
                 .await
                 .is_err()
             {
@@ -64,6 +70,7 @@ impl Socket {
 
     async fn setup_runners<A>(
         actor: Addr<A>,
+        stream: Option<TcpStream>,
         my_addr: SocketAddr,
         write_receiver: UnboundedReceiver<WriterSend>,
         stop_rx: oneshot::Receiver<()>,
@@ -72,7 +79,11 @@ impl Socket {
         A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
         A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
     {
-        let (reader, writer) = TcpStream::connect(my_addr).await?.into_split();
+        let stream = match stream {
+            Some(stream) => stream,
+            None => TcpStream::connect(my_addr).await?,
+        };
+        let (reader, writer) = stream.into_split();
 
         let on_end = Self::on_end(actor.clone(), my_addr);
         let write_handle = spawn(async move {

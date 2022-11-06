@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     fmt::{Display, Formatter},
+    io,
 };
 
 #[derive(Debug)]
@@ -27,5 +28,11 @@ impl<T: Error> From<T> for SocketError {
 impl Display for SocketError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
+    }
+}
+
+impl From<SocketError> for io::Error {
+    fn from(e: SocketError) -> Self {
+        Self::new(io::ErrorKind::Other, e.to_string())
     }
 }

@@ -6,7 +6,7 @@ use super::{OnEnd, WriterSend};
 
 pub(crate) const MAGIC_NUMBER: [u8; 2] = [0x52, 0x56];
 pub(crate) const LEN_BYTES: usize = 2; // u16, no cambiar
-const MAX_MESSAGE_SIZE: usize = 1 << (8 * LEN_BYTES);
+pub const MAX_MESSAGE_SIZE: usize = 1 << (8 * LEN_BYTES);
 
 pub struct SocketWrite<T: AsyncWriteExt + Unpin> {
     writer: T,

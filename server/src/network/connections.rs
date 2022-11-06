@@ -1,18 +1,20 @@
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
-use std::{collections::HashMap, net::SocketAddr, sync::mpsc::Sender};
+use actix_rt::net::TcpStream;
+use std::{collections::HashMap, net::SocketAddr};
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
     error::SocketError,
-    messages::SendPacket,
+    messages::{AddStream, SendPacket},
     socket::{Socket, SocketEnd, SocketReceived, SocketSend},
     status::SocketStatus,
 };
 
 pub(crate) struct ConnectionHandler {
     connections: HashMap<SocketAddr, SocketStatus<Self>>,
-    sender: Sender<SocketReceived>,
+    sender: UnboundedSender<SocketReceived>,
 }
 
 impl Actor for ConnectionHandler {
@@ -20,7 +22,7 @@ impl Actor for ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub(crate) fn new(sender: Sender<SocketReceived>) -> Self {
+    pub(crate) fn new(sender: UnboundedSender<SocketReceived>) -> Self {
         Self {
             connections: HashMap::new(),
             sender,
@@ -31,9 +33,13 @@ impl ConnectionHandler {
         socket.send(SocketSend { data: msg.data }).await?
     }
 
-    fn create_socket(this_actor: Addr<Self>, addr: SocketAddr) -> SocketStatus<Self> {
+    fn create_socket(
+        this_actor: Addr<Self>,
+        addr: SocketAddr,
+        stream: Option<TcpStream>,
+    ) -> SocketStatus<Self> {
         let this_actor_clone = this_actor.clone();
-        let socket = Socket::new(this_actor, addr).start();
+        let socket = Socket::new(this_actor, addr, stream).start();
         SocketStatus::new(socket, this_actor_clone, addr)
     }
 }
@@ -68,12 +74,24 @@ impl Handler<SendPacket> for ConnectionHandler {
         let status = self
             .connections
             .entry(msg.to)
-            .or_insert_with(move || Self::create_socket(this_actor, socket_addr));
+            .or_insert_with(move || Self::create_socket(this_actor, socket_addr, None));
 
         status.restart_task();
         let socket = status.get_socket();
         async move { Self::send(socket, msg).await }
             .into_actor(self)
             .boxed_local()
+    }
+}
+
+impl Handler<AddStream> for ConnectionHandler {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddStream, _ctx: &mut Self::Context) -> Self::Result {
+        let this_actor = _ctx.address();
+        self.connections.insert(
+            msg.addr,
+            Self::create_socket(this_actor, msg.addr, Some(msg.stream)),
+        );
     }
 }
