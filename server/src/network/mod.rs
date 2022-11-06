@@ -12,6 +12,7 @@ mod connections;
 mod error;
 mod messages;
 mod socket;
+mod status;
 
 struct ConnectionlessTCP {
     actor: Addr<ConnectionHandler>,
@@ -33,7 +34,7 @@ impl UdpTrait for ConnectionlessTCP {
         Ok((1, received.addr))
     }
 
-    fn bind<U: std::net::ToSocketAddrs>(addr: U) -> std::io::Result<Self>
+    fn bind<U: std::net::ToSocketAddrs>(_addr: U) -> std::io::Result<Self>
     where
         Self: Sized,
     {
