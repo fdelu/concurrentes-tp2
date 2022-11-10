@@ -26,12 +26,23 @@ impl TryFrom<Vec<u8>> for ReleasePacket {
         if packet_type != LockPacketType::Release {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Release, packet_type
+                LockPacketType::Release,
+                packet_type
             ));
         }
 
         let resource_id = value[1..9].try_into().unwrap();
 
         Ok(Self { resource_id })
+    }
+}
+
+impl From<ReleasePacket> for Vec<u8> {
+    fn from(packet: ReleasePacket) -> Self {
+        let mut buffer = Vec::new();
+        buffer.push(LockPacketType::Release.into());
+        let resource_id: [u8; 4] = packet.resource_id.into();
+        buffer.extend(resource_id.iter());
+        buffer
     }
 }

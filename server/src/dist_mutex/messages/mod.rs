@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod public;
 mod ack;
 mod ok;
+mod public;
 mod request;
 
 #[derive(Eq, PartialEq)]
@@ -14,7 +14,10 @@ pub struct Timestamp {
 impl Timestamp {
     pub fn new() -> Self {
         Self {
-            time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+            time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
         }
     }
 }

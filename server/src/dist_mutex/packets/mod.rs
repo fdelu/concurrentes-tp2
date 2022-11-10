@@ -1,12 +1,12 @@
-mod request;
-mod release;
 mod ack;
 mod ok;
+mod release;
+mod request;
 
-pub(crate) use request::RequestPacket;
-pub(crate) use release::ReleasePacket;
 pub(crate) use ack::AckPacket;
 pub(crate) use ok::OkPacket;
+pub(crate) use release::ReleasePacket;
+pub(crate) use request::RequestPacket;
 
 const LOCK_REQUEST_TYPE: u8 = 0;
 const LOCK_ACK_TYPE: u8 = 1;
@@ -45,4 +45,3 @@ impl TryFrom<u8> for LockPacketType {
         }
     }
 }
-

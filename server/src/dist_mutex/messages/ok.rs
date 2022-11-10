@@ -1,5 +1,5 @@
-use actix::prelude::*;
 use crate::dist_mutex::{DistMutex, ServerId, TCPActorTrait};
+use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]

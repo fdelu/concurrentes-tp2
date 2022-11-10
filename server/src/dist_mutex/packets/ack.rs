@@ -8,10 +8,7 @@ pub struct AckPacket {
 
 impl AckPacket {
     pub fn new(id: ResourceId, server_id: ServerId) -> Self {
-        Self {
-            id,
-            server_id,
-        }
+        Self { id, server_id }
     }
 }
 
@@ -30,17 +27,15 @@ impl TryFrom<Vec<u8>> for AckPacket {
         if packet_type != LockPacketType::Ack {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Ack, packet_type
+                LockPacketType::Ack,
+                packet_type
             ));
         }
 
         let id = value[1..9].try_into().unwrap();
         let server_id = value[9..17].try_into().unwrap();
 
-        Ok(Self {
-            id,
-            server_id,
-        })
+        Ok(Self { id, server_id })
     }
 }
 

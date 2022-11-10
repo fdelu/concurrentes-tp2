@@ -1,5 +1,5 @@
-use crate::dist_mutex::{ResourceId, ServerId};
 use crate::dist_mutex::packets::LockPacketType;
+use crate::dist_mutex::{ResourceId, ServerId};
 
 pub struct OkPacket {
     id: ResourceId,
@@ -27,7 +27,8 @@ impl TryFrom<Vec<u8>> for OkPacket {
         if packet_type != LockPacketType::Ok {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Ok, packet_type
+                LockPacketType::Ok,
+                packet_type
             ));
         }
 

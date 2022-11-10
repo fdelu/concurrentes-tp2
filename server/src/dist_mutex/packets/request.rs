@@ -9,10 +9,7 @@ pub(crate) struct RequestPacket {
 
 impl RequestPacket {
     pub fn new(id: ResourceId, requester: ServerId) -> Self {
-        Self {
-            id,
-            requester,
-        }
+        Self { id, requester }
     }
 }
 
@@ -43,16 +40,14 @@ impl TryFrom<Vec<u8>> for RequestPacket {
         if packet_type != LockPacketType::Request {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Request, packet_type
+                LockPacketType::Request,
+                packet_type
             ));
         }
 
         let id = value[1..9].try_into().unwrap();
         let requester = value[9..11].try_into().unwrap();
-        
-        Ok(Self {
-            id,
-            requester,
-        })
+
+        Ok(Self { id, requester })
     }
 }

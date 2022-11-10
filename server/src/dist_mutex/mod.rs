@@ -1,3 +1,5 @@
+use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::packets::RequestPacket;
 use actix::prelude::*;
 use common::AHandler;
 use std::collections::HashSet;
@@ -6,13 +8,11 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time;
-use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::RequestPacket;
 
 use crate::network::{ConnectionHandler, SendPacket};
 
-mod packets;
 mod messages;
+mod packets;
 
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(3);
 const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
@@ -110,4 +110,3 @@ impl<T: TCPActorTrait> DistMutex<T> {
         });
     }
 }
-

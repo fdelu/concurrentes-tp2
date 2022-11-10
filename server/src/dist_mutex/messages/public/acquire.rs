@@ -2,8 +2,11 @@ use actix::prelude::*;
 use tokio::sync::oneshot;
 use tokio::time;
 
-use crate::dist_mutex::{DistMutex, MutexError, MutexResult, TCPActorTrait, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR};
 use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::{
+    DistMutex, MutexError, MutexResult, TCPActorTrait, TIME_UNTIL_DISCONNECT_POLITIC,
+    TIME_UNTIL_ERROR,
+};
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
@@ -32,7 +35,7 @@ impl<T: TCPActorTrait> Handler<LockMessage> for DistMutex<T> {
                 Ok(())
             }
         }
-            .into_actor(self);
+        .into_actor(self);
 
         future
             .then(|r, me, _| {
@@ -54,8 +57,8 @@ impl<T: TCPActorTrait> Handler<LockMessage> for DistMutex<T> {
                                     Ok(())
                                 }
                             }
-                                .into_actor(me)
-                                .boxed_local()
+                            .into_actor(me)
+                            .boxed_local()
                         }
                     }
                     Err(MutexError::Timeout) => {
