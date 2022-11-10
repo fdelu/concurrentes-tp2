@@ -28,18 +28,8 @@ impl<T: TCPActorTrait> Handler<ReleaseMessage> for DistMutex<T> {
                     println!("Error sending release packet: {}", e);
                 }
             }
-        }
-        .into_actor(self)
-        .boxed_local();
-
-        self.connected_servers.iter().for_each(|server_id| {
-            self.socket
-                .try_send(SendPacket {
-                    to: (*server_id).into(),
-                    data: ReleasePacket::new(self.id).into(),
-                })
-                .unwrap();
-        });
-        async { Ok(()) }.into_actor(self).boxed_local()
+            Ok(())
+        }.into_actor(self)
+        .boxed_local()
     }
 }
