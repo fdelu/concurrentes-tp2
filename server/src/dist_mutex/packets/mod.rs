@@ -1,8 +1,12 @@
-use crate::dist_mutex::{ResourceId};
-
 mod request;
+mod release;
+mod ack;
+mod ok;
 
-pub(crate) use request::LockRequestPacket;
+pub(crate) use request::RequestPacket;
+pub(crate) use release::ReleasePacket;
+pub(crate) use ack::AckPacket;
+pub(crate) use ok::OkPacket;
 
 const LOCK_REQUEST_TYPE: u8 = 0;
 const LOCK_ACK_TYPE: u8 = 1;
@@ -12,8 +16,8 @@ const LOCK_RELEASE_TYPE: u8 = 3;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum LockPacketType {
     Request,
-    Lock,
     Ok,
+    Ack,
     Release,
 }
 
@@ -21,7 +25,7 @@ impl From<LockPacketType> for u8 {
     fn from(packet_type: LockPacketType) -> Self {
         match packet_type {
             LockPacketType::Request => LOCK_REQUEST_TYPE,
-            LockPacketType::Lock => LOCK_ACK_TYPE,
+            LockPacketType::Ack => LOCK_ACK_TYPE,
             LockPacketType::Ok => LOCK_OK_TYPE,
             LockPacketType::Release => LOCK_RELEASE_TYPE,
         }
@@ -34,7 +38,7 @@ impl TryFrom<u8> for LockPacketType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             LOCK_REQUEST_TYPE => Ok(LockPacketType::Request),
-            LOCK_ACK_TYPE => Ok(LockPacketType::Lock),
+            LOCK_ACK_TYPE => Ok(LockPacketType::Ack),
             LOCK_OK_TYPE => Ok(LockPacketType::Ok),
             LOCK_RELEASE_TYPE => Ok(LockPacketType::Release),
             _ => Err(format!("Unknown packet type: {}", value)),

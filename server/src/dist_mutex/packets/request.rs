@@ -1,28 +1,34 @@
 use crate::dist_mutex::packets::LockPacketType;
-use crate::dist_mutex::ResourceId;
+use crate::dist_mutex::{ResourceId, ServerId};
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct LockRequestPacket {
+pub(crate) struct RequestPacket {
     id: ResourceId,
+    requester: ServerId,
 }
 
-impl LockRequestPacket {
-    pub fn new(id: ResourceId) -> Self {
-        Self { id }
+impl RequestPacket {
+    pub fn new(id: ResourceId, requester: ServerId) -> Self {
+        Self {
+            id,
+            requester,
+        }
     }
 }
 
-impl From<LockRequestPacket> for Vec<u8> {
-    fn from(packet: LockRequestPacket) -> Self {
+impl From<RequestPacket> for Vec<u8> {
+    fn from(packet: RequestPacket) -> Self {
         let mut buffer = Vec::new();
         buffer.push(LockPacketType::Request.into());
         let id: [u8; 4] = packet.id.into();
         buffer.extend(id.iter());
+        let requester: [u8; 2] = packet.requester.into();
+        buffer.extend(requester.iter());
         buffer
     }
 }
 
-impl TryFrom<Vec<u8>> for LockRequestPacket {
+impl TryFrom<Vec<u8>> for RequestPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
@@ -42,7 +48,11 @@ impl TryFrom<Vec<u8>> for LockRequestPacket {
         }
 
         let id = value[1..9].try_into().unwrap();
-
-        Ok(Self { id })
+        let requester = value[9..11].try_into().unwrap();
+        
+        Ok(Self {
+            id,
+            requester,
+        })
     }
 }
