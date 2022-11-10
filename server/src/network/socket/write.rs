@@ -8,13 +8,13 @@ pub(crate) const MAGIC_NUMBER: [u8; 2] = [0x52, 0x56];
 pub(crate) const LEN_BYTES: usize = 2; // u16, no cambiar
 pub const MAX_MESSAGE_SIZE: usize = 1 << (8 * LEN_BYTES);
 
-pub struct SocketWrite<T: AsyncWriteExt + Unpin> {
+pub struct WriterLoop<T: AsyncWriteExt + Unpin> {
     writer: T,
     rx: UnboundedReceiver<WriterSend>,
     on_end: OnEnd,
 }
 
-impl<T: AsyncWriteExt + Unpin> SocketWrite<T> {
+impl<T: AsyncWriteExt + Unpin> WriterLoop<T> {
     pub(crate) fn new(writer: T, rx: UnboundedReceiver<WriterSend>, on_end: OnEnd) -> Self {
         Self { writer, rx, on_end }
     }
@@ -76,7 +76,7 @@ mod tests {
         let ended = Arc::new(AtomicBool::new(false));
         let ended_c = ended.clone();
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
-        let socket_read = SocketWrite::new(mock_writer, rx, on_end);
+        let socket_read = WriterLoop::new(mock_writer, rx, on_end);
 
         let res = block_on(async move {
             socket_read.run().await;
@@ -119,7 +119,7 @@ mod tests {
         let ended = Arc::new(AtomicBool::new(false));
         let ended_c = ended.clone();
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
-        let socket_read = SocketWrite::new(mock_writer, rx, on_end);
+        let socket_read = WriterLoop::new(mock_writer, rx, on_end);
 
         let (res_1, res_2) = block_on(async move {
             socket_read.run().await;
@@ -151,7 +151,7 @@ mod tests {
         let ended = Arc::new(AtomicBool::new(false));
         let ended_c = ended.clone();
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
-        let socket_read = SocketWrite::new(mock_writer, rx, on_end);
+        let socket_read = WriterLoop::new(mock_writer, rx, on_end);
 
         let res = block_on(async move {
             socket_read.run().await;

@@ -7,7 +7,7 @@ use crate::network::error::SocketError;
 
 // Public messages
 
-pub type RecvOutput = (SocketAddr, Vec<u8>);
+pub use crate::network::socket::ReceivedPacket;
 
 #[derive(Message)]
 #[rtype(result = "Result<(), SocketError>")]
@@ -15,10 +15,6 @@ pub struct SendPacket {
     pub to: SocketAddr,
     pub data: Vec<u8>,
 }
-
-#[derive(Message)]
-#[rtype(result = "Result<RecvOutput, SocketError>")]
-pub struct RecvPacket {}
 
 // Private messages
 

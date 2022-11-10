@@ -19,7 +19,7 @@ pub(crate) struct WriterSend {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct SocketReceived {
+pub struct ReceivedPacket {
     pub data: Vec<u8>,
     pub addr: SocketAddr,
 }

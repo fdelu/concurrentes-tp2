@@ -16,8 +16,8 @@ mod write;
 
 pub use messages::*;
 
-use self::read::SocketRead;
-use self::write::SocketWrite;
+use self::read::ReaderLoop;
+use self::write::WriterLoop;
 
 use super::error::SocketError;
 
@@ -29,6 +29,7 @@ pub use self::write::MAX_MESSAGE_SIZE;
 pub struct Socket {
     write_sender: UnboundedSender<WriterSend>,
     stop_tx: Option<oneshot::Sender<()>>,
+    addr: SocketAddr,
 }
 
 impl Actor for Socket {
@@ -40,36 +41,50 @@ impl Actor for Socket {
 }
 
 impl Socket {
-    pub fn new<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
-        actor_read_to: Addr<A>,
+    pub fn new<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+        received_handler: Addr<A>,
+        end_handler: Addr<B>,
         socket_addr: SocketAddr,
         stream: Option<TcpStream>,
     ) -> Socket {
         let (write_sender, write_receiver) = unbounded_channel();
-        let actor_end = actor_read_to.clone();
+        let end_h = end_handler.clone();
 
         let (stop_tx, stop_rx) = oneshot::channel();
         spawn(async move {
-            if Self::setup_runners(actor_read_to, stream, socket_addr, write_receiver, stop_rx)
-                .await
-                .is_err()
+            if Self::run(
+                received_handler,
+                end_handler,
+                stop_rx,
+                stream,
+                socket_addr,
+                write_receiver,
+            )
+            .await
+            .is_err()
             {
-                actor_end.do_send(SocketEnd { addr: socket_addr });
+                end_h.do_send(SocketEnd { addr: socket_addr });
             }
         });
 
         Socket {
             write_sender,
             stop_tx: Some(stop_tx),
+            addr: socket_addr,
         }
     }
 
-    async fn setup_runners<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
-        actor: Addr<A>,
+    pub fn get_addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    async fn run<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+        received_handler: Addr<A>,
+        end_handler: Addr<B>,
+        stop_rx: oneshot::Receiver<()>,
         stream: Option<TcpStream>,
         my_addr: SocketAddr,
         write_receiver: UnboundedReceiver<WriterSend>,
-        stop_rx: oneshot::Receiver<()>,
     ) -> Result<(), SocketError> {
         let stream = match stream {
             Some(stream) => stream,
@@ -77,15 +92,15 @@ impl Socket {
         };
         let (reader, writer) = stream.into_split();
 
-        let on_end = Self::on_end(actor.clone(), my_addr);
+        let on_end = Self::on_end(end_handler.clone(), my_addr);
         let write_handle = spawn(async move {
-            SocketWrite::new(writer, write_receiver, on_end).run().await;
+            WriterLoop::new(writer, write_receiver, on_end).run().await;
         });
 
-        let on_end = Self::on_end(actor.clone(), my_addr);
-        let on_read = Self::on_read(actor, my_addr);
+        let on_end = Self::on_end(end_handler.clone(), my_addr);
+        let on_read = Self::on_read(received_handler, my_addr);
         let read_handle = spawn(async move {
-            SocketRead::new(reader, on_read, on_end).run().await;
+            ReaderLoop::new(reader, on_read, on_end).run().await;
         });
 
         stop_rx.await.ok();
@@ -95,21 +110,15 @@ impl Socket {
         Ok(())
     }
 
-    fn on_end<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
-        actor: Addr<A>,
-        my_addr: SocketAddr,
-    ) -> OnEnd {
+    fn on_end<B: AHandler<SocketEnd>>(actor: Addr<B>, my_addr: SocketAddr) -> OnEnd {
         Box::new(move || {
             actor.do_send(SocketEnd { addr: my_addr });
         })
     }
 
-    fn on_read<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
-        actor: Addr<A>,
-        my_addr: SocketAddr,
-    ) -> OnRead {
+    fn on_read<A: AHandler<ReceivedPacket>>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead {
         Box::new(move |data: Vec<u8>| {
-            actor.do_send(SocketReceived {
+            actor.do_send(ReceivedPacket {
                 data,
                 addr: my_addr,
             });

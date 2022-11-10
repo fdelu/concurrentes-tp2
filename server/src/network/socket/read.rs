@@ -8,13 +8,13 @@ use super::{OnEnd, OnRead};
 
 use super::write::{LEN_BYTES, MAGIC_NUMBER};
 
-pub struct SocketRead<T: AsyncReadExt + Unpin> {
+pub struct ReaderLoop<T: AsyncReadExt + Unpin> {
     reader: T,
     on_read: OnRead,
     on_end: OnEnd,
 }
 
-impl<T: AsyncReadExt + Unpin> SocketRead<T> {
+impl<T: AsyncReadExt + Unpin> ReaderLoop<T> {
     pub fn new(reader: T, on_read: OnRead, on_end: OnEnd) -> Self {
         Self {
             reader,
@@ -92,7 +92,7 @@ mod tests {
         let on_read = Box::new(move |data: Vec<u8>| read_c.lock().unwrap().push(data));
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
 
-        let socket_read = SocketRead::new(mock_reader, on_read, on_end);
+        let socket_read = ReaderLoop::new(mock_reader, on_read, on_end);
         block_on(socket_read.run());
         return (read, ended);
     }
@@ -168,7 +168,7 @@ mod tests {
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
 
         block_on(async move {
-            let socket = SocketRead::new(before_rx, on_read, on_end);
+            let socket = ReaderLoop::new(before_rx, on_read, on_end);
             let future = socket.run();
             task::yield_now().await; // more likely que se empiece a ejecutar el socket
             assert!(!ended_c2.load(Relaxed));
