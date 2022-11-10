@@ -1,39 +1,73 @@
-use std::{collections::HashMap, mem::replace, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr};
 
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
-use actix_rt::task::JoinHandle;
-use tokio::{
-    net::ToSocketAddrs,
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        oneshot,
-    },
-};
+use actix_rt::{net::TcpStream, task::JoinHandle};
+use common::AHandler;
+use tokio::net::ToSocketAddrs;
 
+mod connection;
 mod error;
 mod listener;
 mod messages;
 mod socket;
-mod status;
 
 pub use self::messages::*;
 use self::{
+    connection::Connection,
     error::SocketError,
-    listener::{Listener, OnConnection},
-    socket::{SocketEnd, SocketReceived, SocketSend},
-    status::SocketStatus,
+    listener::Listener,
+    socket::{ReceivedPacket, Socket, SocketEnd, SocketSend},
 };
 
-pub struct ConnectionHandler {
-    connections: HashMap<SocketAddr, SocketStatus<Self>>,
-    incoming_buffer: UnboundedSender<RecvOutput>,
-    recv_queue: oneshot::Receiver<UnboundedReceiver<RecvOutput>>,
+pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
+    connections: HashMap<SocketAddr, Connection<Self>>,
+    received_handler: Addr<A>,
     join_listener: JoinHandle<()>,
 }
 
-impl Actor for ConnectionHandler {
+impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
+    fn initialize(ctx: &mut Context<Self>, listener: Listener, received_handler: Addr<A>) -> Self {
+        Self {
+            connections: HashMap::new(),
+            received_handler,
+            join_listener: listener.run(ctx.address()),
+        }
+    }
+
+    pub async fn bind<T: ToSocketAddrs>(
+        address: T,
+        received_handler: Addr<A>,
+    ) -> Result<Addr<Self>, SocketError> {
+        let listener = Listener::bind(address).await?;
+
+        Ok(Self::create(move |ctx| {
+            Self::initialize(ctx, listener, received_handler)
+        }))
+    }
+
+    fn create_connection(
+        this: Addr<Self>,
+        receiver: Addr<A>,
+        addr: SocketAddr,
+        stream: Option<TcpStream>,
+    ) -> Connection<Self> {
+        let socket = Socket::new(receiver, this.clone(), addr, stream);
+        Connection::new(this, socket)
+    }
+
+    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
+        let receiver = self.received_handler.clone();
+        let connection = self
+            .connections
+            .entry(addr)
+            .or_insert_with(move || Self::create_connection(this, receiver, addr, None));
+        connection
+    }
+}
+
+impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -41,115 +75,42 @@ impl Actor for ConnectionHandler {
     }
 }
 
-impl ConnectionHandler {
-    fn initialize(
-        ctx: &mut Context<Self>,
-        listener: Listener,
-        incoming_buffer: UnboundedSender<RecvOutput>,
-        recv_queue: oneshot::Receiver<UnboundedReceiver<RecvOutput>>,
-    ) -> Self {
-        let actor_addr = ctx.address();
-        Self {
-            connections: HashMap::new(),
-            incoming_buffer,
-            recv_queue,
-            join_listener: listener.run(Self::on_connection(actor_addr)),
-        }
-    }
-
-    pub async fn bind<T: ToSocketAddrs>(address: T) -> Result<Addr<Self>, SocketError> {
-        let listener = Listener::bind(address).await?;
-        let (incoming_tx, incoming_rx) = unbounded_channel();
-        let (recv_tx, recv_rx) = oneshot::channel();
-        recv_tx.send(incoming_rx).map_err(|_| {
-            SocketError::new("Failed to send buffer receiver through initial oneshot channel")
-        })?;
-
-        Ok(Self::create(move |ctx| {
-            Self::initialize(ctx, listener, incoming_tx, recv_rx)
-        }))
-    }
-
-    fn on_connection(actor: Addr<ConnectionHandler>) -> OnConnection {
-        Box::new(move |stream, addr| actor.do_send(AddStream { addr, stream }))
-    }
-}
-
 // Public messages
 
-impl Handler<SendPacket> for ConnectionHandler {
+impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: SendPacket, _ctx: &mut Context<Self>) -> Self::Result {
-        let this_actor = _ctx.address();
-        let socket_addr = msg.to;
-        let status = self
-            .connections
-            .entry(msg.to)
-            .or_insert_with(move || SocketStatus::new(this_actor, socket_addr, None));
+    fn handle(&mut self, msg: SendPacket, ctx: &mut Context<Self>) -> Self::Result {
+        let connection = self.get_connection(ctx.address(), msg.to);
+        connection.restart_timeout();
+        let socket = connection.get_socket();
 
-        status.restart_timeout();
-        let socket = status.get_socket();
         async move { socket.send(SocketSend { data: msg.data }).await? }
             .into_actor(self)
             .boxed_local()
     }
 }
 
-impl Handler<RecvPacket> for ConnectionHandler {
-    type Result = ResponseActFuture<Self, Result<RecvOutput, SocketError>>;
-
-    fn handle(&mut self, _msg: RecvPacket, _ctx: &mut Context<Self>) -> Self::Result {
-        let (tx, rx) = oneshot::channel();
-        let recv_queue = replace(&mut self.recv_queue, rx);
-
-        async move {
-            let mut receiver = recv_queue.await?;
-            let out = receiver
-                .recv()
-                .await
-                .ok_or_else(|| SocketError::new("Error receiving: internal channel is closed"));
-            tx.send(receiver).map_err(|_| {
-                SocketError::new("Failed to send buffer receiver through oneshot channel")
-            })?;
-            out
-        }
-        .into_actor(self)
-        .boxed_local()
-    }
-}
-
 // Private Messages
 
-impl Handler<AddStream> for ConnectionHandler {
+impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     type Result = ();
 
-    fn handle(&mut self, msg: AddStream, _ctx: &mut Self::Context) -> Self::Result {
-        let this_actor = _ctx.address();
-        self.connections.insert(
+    fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
+        let connection = Self::create_connection(
+            ctx.address(),
+            self.received_handler.clone(),
             msg.addr,
-            SocketStatus::new(this_actor, msg.addr, Some(msg.stream)),
+            Some(msg.stream),
         );
+        self.connections.insert(msg.addr, connection);
     }
 }
 
-impl Handler<SocketEnd> for ConnectionHandler {
+impl<A: AHandler<ReceivedPacket>> Handler<SocketEnd> for ConnectionHandler<A> {
     type Result = ();
 
     fn handle(&mut self, msg: SocketEnd, _ctx: &mut Self::Context) {
         self.connections.remove(&msg.addr);
-    }
-}
-
-impl Handler<SocketReceived> for ConnectionHandler {
-    type Result = ();
-
-    fn handle(&mut self, msg: SocketReceived, _ctx: &mut Self::Context) {
-        if let Some(status) = self.connections.get_mut(&msg.addr) {
-            status.restart_timeout();
-        }
-        if let Err(e) = self.incoming_buffer.send((msg.addr, msg.data)) {
-            println!("Error sending through channel: {e}");
-        }
     }
 }

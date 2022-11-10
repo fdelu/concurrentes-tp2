@@ -1,12 +1,14 @@
 use std::{io, net::SocketAddr};
 
-use actix_rt::net::{TcpListener, TcpStream};
+use actix::Addr;
+use actix_rt::net::TcpListener;
+use common::AHandler;
 use tokio::{
     net::ToSocketAddrs,
     task::{spawn, JoinHandle},
 };
 
-pub(crate) type OnConnection = Box<dyn Fn(TcpStream, SocketAddr) + Send + 'static>;
+use super::{error::SocketError, AddStream};
 
 pub struct Listener {
     listener: TcpListener,
@@ -22,12 +24,20 @@ impl Listener {
         self.listener.local_addr()
     }
 
-    pub fn run(self, on_connection: OnConnection) -> JoinHandle<()> {
+    async fn add_connection<A: AHandler<AddStream>>(
+        listener: &mut TcpListener,
+        handler: &Addr<A>,
+    ) -> Result<(), SocketError> {
+        let (stream, addr) = listener.accept().await?;
+        handler.send(AddStream { stream, addr }).await?;
+        Ok(())
+    }
+
+    pub(crate) fn run<A: AHandler<AddStream>>(mut self, add_handler: Addr<A>) -> JoinHandle<()> {
         spawn(async move {
             loop {
-                match self.listener.accept().await {
-                    Ok((stream, addr)) => on_connection(stream, addr),
-                    Err(e) => eprintln!("Error accepting connection: {e}"),
+                if let Err(e) = Self::add_connection(&mut self.listener, &add_handler).await {
+                    eprintln!("Error accepting connection: {e}");
                 }
             }
         })
