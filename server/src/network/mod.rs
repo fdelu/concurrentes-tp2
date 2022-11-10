@@ -4,7 +4,6 @@ use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
 use actix_rt::{net::TcpStream, task::JoinHandle};
-use common::AHandler;
 use tokio::net::ToSocketAddrs;
 
 mod connection;
@@ -22,31 +21,21 @@ use self::{
     listener::Listener,
     socket::{Socket, SocketEnd, SocketSend},
 };
+use common::AHandler;
 
 pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
     connections: HashMap<SocketAddr, Connection<Self>>,
     received_handler: Addr<A>,
-    join_listener: JoinHandle<()>,
+    join_listener: Option<JoinHandle<()>>,
 }
 
 impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
-    fn initialize(ctx: &mut Context<Self>, listener: Listener, received_handler: Addr<A>) -> Self {
+    fn new(received_handler: Addr<A>) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,
-            join_listener: listener.run(ctx.address()),
+            join_listener: None,
         }
-    }
-
-    pub async fn bind<T: ToSocketAddrs>(
-        address: T,
-        received_handler: Addr<A>,
-    ) -> Result<Addr<Self>, SocketError> {
-        let listener = Listener::bind(address).await?;
-
-        Ok(Self::create(move |ctx| {
-            Self::initialize(ctx, listener, received_handler)
-        }))
     }
 
     fn create_connection(
@@ -73,7 +62,7 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        self.join_listener.abort();
+        self.join_listener.take().map(|join| join.abort());
     }
 }
 
@@ -89,6 +78,28 @@ impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
 
         async move { socket.send(SocketSend { data: msg.data }).await? }
             .into_actor(self)
+            .boxed_local()
+    }
+}
+
+impl<A: AHandler<ReceivedPacket>, T: ToSocketAddrs + 'static> Handler<Listen<T>>
+    for ConnectionHandler<A>
+{
+    type Result = ResponseActFuture<Self, Result<(), SocketError>>;
+
+    fn handle(&mut self, msg: Listen<T>, _ctx: &mut Context<Self>) -> Self::Result {
+        if (self.join_listener.is_some()) {
+            return async { Err(SocketError::new("Already listening for new connection")) }
+                .into_actor(self)
+                .boxed_local();
+        }
+
+        async move { Listener::bind(msg.bind_to).await }
+            .into_actor(self)
+            .map(|listener, this, ctx| {
+                this.join_listener = Some(listener?.run(ctx.address()));
+                Ok(())
+            })
             .boxed_local()
     }
 }
