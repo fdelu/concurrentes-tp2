@@ -1,5 +1,10 @@
+use crate::dist_mutex::messages::ack::AckMessage;
+use crate::dist_mutex::messages::ok::OkMessage;
+use crate::dist_mutex::messages::public::acquire::AcquireMessage;
+use crate::dist_mutex::messages::public::release::ReleaseMessage;
+use crate::dist_mutex::messages::request::RequestMessage;
 use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::RequestPacket;
+use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use actix::prelude::*;
 use common::AHandler;
 use std::collections::HashSet;
@@ -10,23 +15,25 @@ use tokio::task::JoinHandle;
 use tokio::time;
 
 use crate::network::{ConnectionHandler, SendPacket};
+use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
+use crate::packet_dispatcher::PacketDispatcherTrait;
 
-mod messages;
-mod packets;
+pub mod messages;
+pub mod packets;
 
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(3);
 const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
 pub const LOCALHOST: &str = "127.0.0.1";
 
-pub struct DistMutex<T: TCPActorTrait> {
+pub struct DistMutex<P: PacketDispatcherTrait> {
     server_id: ServerId,
     id: ResourceId,
-    socket: Addr<T>,
+    dispatcher: Addr<P>,
     lock_timestamp: Option<Timestamp>,
+
     connected_servers: Vec<ServerId>,
     ack_received: HashSet<ServerId>,
     ok_received: HashSet<ServerId>,
-    sleep_handle: Option<JoinHandle<()>>,
     all_oks_received_channel: Option<oneshot::Sender<()>>,
 }
 
@@ -82,11 +89,56 @@ pub trait TCPActorTrait: AHandler<SendPacket> {}
 
 impl TCPActorTrait for ConnectionHandler {}
 
-impl<T: TCPActorTrait> Actor for DistMutex<T> {
+pub trait DistMutexTrait:
+    AHandler<AcquireMessage>
+    + AHandler<ReleaseMessage>
+    + AHandler<AckMessage>
+    + AHandler<OkMessage>
+    + AHandler<RequestMessage>
+{
+}
+
+pub trait MutexCreationTrait<P: PacketDispatcherTrait> {
+    fn new(
+        server_id: ServerId,
+        id: ResourceId,
+        dispatcher: Addr<P>,
+    ) -> Self;
+}
+
+impl<P: PacketDispatcherTrait> DistMutex<P> {
+    fn new(server_id: ServerId, id: ResourceId, dispatcher: Addr<P>) -> Self {
+        Self {
+            server_id,
+            id,
+            dispatcher,
+            lock_timestamp: None,
+            connected_servers: Vec::new(),
+            ack_received: HashSet::new(),
+            ok_received: HashSet::new(),
+            all_oks_received_channel: None,
+        }
+    }
+}
+
+impl<P: PacketDispatcherTrait> DistMutexTrait for DistMutex<P> {
+}
+
+impl<P: PacketDispatcherTrait> MutexCreationTrait<P> for DistMutex<P> {
+    fn new(
+        server_id: ServerId,
+        id: ResourceId,
+        dispatcher: Addr<P>,
+    ) -> Self {
+        Self::new(server_id, id, dispatcher)
+    }
+}
+
+impl<P: PacketDispatcherTrait> Actor for DistMutex<P> {
     type Context = Context<Self>;
 }
 
-impl<T: TCPActorTrait> DistMutex<T> {
+impl<P: PacketDispatcherTrait> DistMutex<P> {
     fn are_all_ok_received(&self) -> bool {
         self.connected_servers
             .iter()
@@ -99,14 +151,16 @@ impl<T: TCPActorTrait> DistMutex<T> {
         self.all_oks_received_channel = None;
     }
 
-    fn broadcast_lock_request(&mut self) {
-        let lock_request = RequestPacket::new(self.id, self.server_id);
+    fn broadcast_lock_request(&mut self, timestamp: Timestamp) {
+        let lock_request = RequestPacket::new(self.id, self.server_id, timestamp);
 
         self.connected_servers.iter().for_each(|addr| {
-            self.socket.do_send(SendPacket {
-                to: (*addr).into(),
-                data: lock_request.into(),
-            });
+            self.dispatcher
+                .try_send(SendFromMutexMessage::new(
+                    MutexPacket::Request(lock_request),
+                    *addr,
+                ))
+                .unwrap();
         });
     }
 }

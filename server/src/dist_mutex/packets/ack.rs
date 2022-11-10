@@ -1,14 +1,25 @@
-use crate::dist_mutex::packets::LockPacketType;
+use crate::dist_mutex::packets::MutexPacketType;
 use crate::dist_mutex::{ResourceId, ServerId};
 
 pub struct AckPacket {
     id: ResourceId,
-    server_id: ServerId,
+    acker: ServerId,
 }
 
 impl AckPacket {
     pub fn new(id: ResourceId, server_id: ServerId) -> Self {
-        Self { id, server_id }
+        Self {
+            id,
+            acker: server_id,
+        }
+    }
+
+    pub fn id(&self) -> ResourceId {
+        self.id
+    }
+
+    pub fn acker(&self) -> ServerId {
+        self.acker
     }
 }
 
@@ -23,11 +34,11 @@ impl TryFrom<Vec<u8>> for AckPacket {
             ));
         }
 
-        let packet_type = LockPacketType::try_from(value[0])?;
-        if packet_type != LockPacketType::Ack {
+        let packet_type = MutexPacketType::try_from(value[0])?;
+        if packet_type != MutexPacketType::Ack {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Ack,
+                MutexPacketType::Ack,
                 packet_type
             ));
         }
@@ -35,15 +46,18 @@ impl TryFrom<Vec<u8>> for AckPacket {
         let id = value[1..9].try_into().unwrap();
         let server_id = value[9..17].try_into().unwrap();
 
-        Ok(Self { id, server_id })
+        Ok(Self {
+            id,
+            acker: server_id,
+        })
     }
 }
 
 impl From<AckPacket> for Vec<u8> {
     fn from(packet: AckPacket) -> Self {
         let mut buffer = Vec::new();
-        buffer.push(LockPacketType::Ack.into());
-        let server_id: [u8; 2] = packet.server_id.into();
+        buffer.push(MutexPacketType::Ack.into());
+        let server_id: [u8; 2] = packet.acker.into();
         buffer.extend(server_id.iter());
         buffer
     }

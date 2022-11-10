@@ -1,26 +1,46 @@
-use crate::dist_mutex::packets::LockPacketType;
+use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::packets::MutexPacketType;
 use crate::dist_mutex::{ResourceId, ServerId};
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct RequestPacket {
+pub struct RequestPacket {
     id: ResourceId,
     requester: ServerId,
+    timestamp: Timestamp,
 }
 
 impl RequestPacket {
-    pub fn new(id: ResourceId, requester: ServerId) -> Self {
-        Self { id, requester }
+    pub fn new(id: ResourceId, requester: ServerId, timestamp: Timestamp) -> Self {
+        Self {
+            id,
+            requester,
+            timestamp,
+        }
+    }
+
+    pub fn id(&self) -> ResourceId {
+        self.id
+    }
+
+    pub fn requester(&self) -> ServerId {
+        self.requester
+    }
+
+    pub fn timestamp(&self) -> Timestamp {
+        self.timestamp
     }
 }
 
 impl From<RequestPacket> for Vec<u8> {
     fn from(packet: RequestPacket) -> Self {
         let mut buffer = Vec::new();
-        buffer.push(LockPacketType::Request.into());
+        buffer.push(MutexPacketType::Request.into());
         let id: [u8; 4] = packet.id.into();
         buffer.extend(id.iter());
         let requester: [u8; 2] = packet.requester.into();
         buffer.extend(requester.iter());
+        let timestamp: [u8; 16] = packet.timestamp.into();
+        buffer.extend(timestamp.iter());
         buffer
     }
 }
@@ -36,18 +56,23 @@ impl TryFrom<Vec<u8>> for RequestPacket {
             ));
         }
 
-        let packet_type = LockPacketType::try_from(value[0])?;
-        if packet_type != LockPacketType::Request {
+        let packet_type = MutexPacketType::try_from(value[0])?;
+        if packet_type != MutexPacketType::Request {
             return Err(format!(
                 "Invalid packet type: expected {:?}, got {:?}",
-                LockPacketType::Request,
+                MutexPacketType::Request,
                 packet_type
             ));
         }
 
         let id = value[1..9].try_into().unwrap();
         let requester = value[9..11].try_into().unwrap();
+        let timestamp: Timestamp = value[11..27].into();
 
-        Ok(Self { id, requester })
+        Ok(Self {
+            id,
+            requester,
+            timestamp,
+        })
     }
 }

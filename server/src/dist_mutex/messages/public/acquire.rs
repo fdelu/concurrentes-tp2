@@ -7,19 +7,21 @@ use crate::dist_mutex::{
     DistMutex, MutexError, MutexResult, TCPActorTrait, TIME_UNTIL_DISCONNECT_POLITIC,
     TIME_UNTIL_ERROR,
 };
+use crate::packet_dispatcher::PacketDispatcherTrait;
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
-pub struct LockMessage;
+pub struct AcquireMessage;
 
-impl<T: TCPActorTrait> Handler<LockMessage> for DistMutex<T> {
+impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
     type Result = ResponseActFuture<Self, MutexResult<()>>;
 
-    fn handle(&mut self, _: LockMessage, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _: AcquireMessage, _: &mut Self::Context) -> Self::Result {
         self.clean_state();
-        self.lock_timestamp = Some(Timestamp::new());
+        let timestamp = Timestamp::new();
 
-        self.broadcast_lock_request();
+        self.broadcast_lock_request(timestamp);
+        self.lock_timestamp = Some(timestamp);
 
         let (tx, rx) = oneshot::channel();
         self.all_oks_received_channel = Some(tx);

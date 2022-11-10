@@ -1,6 +1,6 @@
-mod dist_mutex;
+pub mod dist_mutex;
 mod network;
-mod packet_dispatcher;
+pub mod packet_dispatcher;
 
 #[actix_rt::main]
 async fn main() {

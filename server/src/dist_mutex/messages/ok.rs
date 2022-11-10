@@ -1,19 +1,29 @@
-use crate::dist_mutex::{DistMutex, ServerId, TCPActorTrait};
+use crate::dist_mutex::packets::OkPacket;
+use crate::dist_mutex::{DistMutex, ServerId};
+use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct OkMessage {
-    pub server_id: ServerId,
+    sender: ServerId,
 }
 
-impl<T: TCPActorTrait> Handler<OkMessage> for DistMutex<T> {
+impl OkMessage {
+    pub fn new(packet: OkPacket) -> Self {
+        Self {
+            sender: packet.sender(),
+        }
+    }
+}
+
+impl<P: PacketDispatcherTrait> Handler<OkMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
-        self.ok_received.insert(msg.server_id);
+        self.ok_received.insert(msg.sender);
         if self.are_all_ok_received() {
-            self.sleep_handle.take().unwrap().abort();
+            self.all_oks_received_channel.take().unwrap().send(()).unwrap();
         }
     }
 }

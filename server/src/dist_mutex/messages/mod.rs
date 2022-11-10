@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod ack;
-mod ok;
-mod public;
-mod request;
+pub(crate) mod ack;
+pub(crate) mod ok;
+pub mod public;
+pub(crate) mod request;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Timestamp {
     time: u128,
 }
@@ -28,14 +28,15 @@ impl Default for Timestamp {
     }
 }
 
-impl From<Timestamp> for u128 {
+impl From<Timestamp> for [u8; 16] {
     fn from(timestamp: Timestamp) -> Self {
-        timestamp.time
+        timestamp.time.to_be_bytes()
     }
 }
 
-impl From<u128> for Timestamp {
-    fn from(time: u128) -> Self {
+impl From<&[u8]> for Timestamp {
+    fn from(bytes: &[u8]) -> Self {
+        let time = u128::from_be_bytes(bytes.try_into().unwrap());
         Self { time }
     }
 }

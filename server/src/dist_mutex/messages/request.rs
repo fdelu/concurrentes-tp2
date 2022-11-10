@@ -1,9 +1,8 @@
-use crate::dist_mutex::messages::ack::AckMessage;
-use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::{AckPacket, OkPacket};
-use crate::dist_mutex::{DistMutex, ResourceId, ServerId, TCPActorTrait};
-use crate::network::SendPacket;
+use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket};
+use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
+use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
+use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
 #[derive(Message)]
@@ -13,37 +12,54 @@ pub struct RequestMessage {
     timestamp: Timestamp,
 }
 
-fn send_ack<T: TCPActorTrait>(socket: &Addr<T>, requester: ServerId, resource_id: ResourceId) {
+impl RequestMessage {
+    pub fn new(packet: RequestPacket) -> Self {
+        Self {
+            requester: packet.requester(),
+            timestamp: packet.timestamp(),
+        }
+    }
+}
+
+fn send_ack<P: PacketDispatcherTrait>(
+    dispatcher: &Addr<P>,
+    requester: ServerId,
+    resource_id: ResourceId,
+) {
     let packet = AckPacket::new(resource_id, requester);
-    socket
-        .try_send(SendPacket {
-            to: requester.into(),
-            data: packet.into(),
-        })
+    dispatcher
+        .try_send(SendFromMutexMessage::new(
+            MutexPacket::Ack(packet),
+            requester,
+        ))
         .unwrap();
 }
 
-fn send_ok<T: TCPActorTrait>(socket: &Addr<T>, requester: ServerId, resource_id: ResourceId) {
+fn send_ok<P: PacketDispatcherTrait>(
+    dispatcher: &Addr<P>,
+    requester: ServerId,
+    resource_id: ResourceId,
+) {
     let packet = OkPacket::new(resource_id, requester);
-    socket
-        .try_send(SendPacket {
-            to: requester.into(),
-            data: packet.into(),
-        })
+    dispatcher
+        .try_send(SendFromMutexMessage::new(
+            MutexPacket::Ok(packet),
+            requester,
+        ))
         .unwrap();
 }
 
-impl<T: TCPActorTrait> Handler<RequestMessage> for DistMutex<T> {
+impl<P: PacketDispatcherTrait> Handler<RequestMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {
-        send_ack(&self.socket, msg.requester, self.id);
+        send_ack(&self.dispatcher, msg.requester, self.id);
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
-                send_ok(&self.socket, msg.requester, self.id);
+                send_ok(&self.dispatcher, msg.requester, self.id);
             }
         } else {
-            send_ok(&self.socket, msg.requester, self.id);
+            send_ok(&self.dispatcher, msg.requester, self.id);
         }
     }
 }

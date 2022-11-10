@@ -1,2 +1,2 @@
-mod acquire;
-mod release;
+pub mod acquire;
+pub mod release;
