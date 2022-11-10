@@ -8,14 +8,14 @@ use actix::prelude::*;
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct RequestMessage {
-    requester: ServerId,
+    from: ServerId,
     timestamp: Timestamp,
 }
 
 impl RequestMessage {
-    pub fn new(packet: RequestPacket) -> Self {
+    pub fn new(from: ServerId, packet: RequestPacket) -> Self {
         Self {
-            requester: packet.requester(),
+            from,
             timestamp: packet.timestamp(),
         }
     }
@@ -26,7 +26,7 @@ fn send_ack<P: PacketDispatcherTrait>(
     requester: ServerId,
     resource_id: ResourceId,
 ) {
-    let packet = AckPacket::new(resource_id, requester);
+    let packet = AckPacket::new(resource_id);
     dispatcher
         .try_send(SendFromMutexMessage::new(
             MutexPacket::Ack(packet),
@@ -40,7 +40,7 @@ fn send_ok<P: PacketDispatcherTrait>(
     requester: ServerId,
     resource_id: ResourceId,
 ) {
-    let packet = OkPacket::new(resource_id, requester);
+    let packet = OkPacket::new(resource_id);
     dispatcher
         .try_send(SendFromMutexMessage::new(
             MutexPacket::Ok(packet),
@@ -53,13 +53,13 @@ impl<P: PacketDispatcherTrait> Handler<RequestMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {
-        send_ack(&self.dispatcher, msg.requester, self.id);
+        send_ack(&self.dispatcher, msg.from, self.id);
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
-                send_ok(&self.dispatcher, msg.requester, self.id);
+                send_ok(&self.dispatcher, msg.from, self.id);
             }
         } else {
-            send_ok(&self.dispatcher, msg.requester, self.id);
+            send_ok(&self.dispatcher, msg.from, self.id);
         }
     }
 }

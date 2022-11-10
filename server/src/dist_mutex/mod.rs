@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time;
 
-use crate::network::{ConnectionHandler, SendPacket};
+use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -79,15 +79,18 @@ impl From<ServerId> for [u8; 2] {
     }
 }
 
+impl From<SocketAddr> for ServerId {
+    fn from(addr: SocketAddr) -> Self {
+        Self { id: addr.port() }
+    }
+}
+
 pub enum MutexError {
     Timeout,
 }
 
 type MutexResult<T> = Result<T, MutexError>;
 
-pub trait TCPActorTrait: AHandler<SendPacket> {}
-
-impl TCPActorTrait for ConnectionHandler {}
 
 pub trait DistMutexTrait:
     AHandler<AcquireMessage>
@@ -152,7 +155,7 @@ impl<P: PacketDispatcherTrait> DistMutex<P> {
     }
 
     fn broadcast_lock_request(&mut self, timestamp: Timestamp) {
-        let lock_request = RequestPacket::new(self.id, self.server_id, timestamp);
+        let lock_request = RequestPacket::new(self.id, timestamp);
 
         self.connected_servers.iter().for_each(|addr| {
             self.dispatcher

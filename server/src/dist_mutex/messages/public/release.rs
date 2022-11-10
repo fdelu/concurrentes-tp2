@@ -1,8 +1,7 @@
 use actix::prelude::*;
 
 use crate::dist_mutex::packets::{MutexPacket, ReleasePacket};
-use crate::dist_mutex::{DistMutex, MutexResult, TCPActorTrait};
-use crate::network::SendPacket;
+use crate::dist_mutex::{DistMutex, MutexResult};
 use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -11,7 +10,7 @@ use crate::packet_dispatcher::PacketDispatcherTrait;
 pub struct ReleaseMessage;
 
 impl ReleaseMessage {
-    pub fn new(packet: ReleasePacket) -> Self {
+    pub fn new(_: ReleasePacket) -> Self {
         Self
     }
 }

@@ -5,25 +5,19 @@ use crate::dist_mutex::{ResourceId, ServerId};
 #[derive(Debug, Copy, Clone)]
 pub struct RequestPacket {
     id: ResourceId,
-    requester: ServerId,
     timestamp: Timestamp,
 }
 
 impl RequestPacket {
-    pub fn new(id: ResourceId, requester: ServerId, timestamp: Timestamp) -> Self {
+    pub fn new(id: ResourceId, timestamp: Timestamp) -> Self {
         Self {
             id,
-            requester,
             timestamp,
         }
     }
 
     pub fn id(&self) -> ResourceId {
         self.id
-    }
-
-    pub fn requester(&self) -> ServerId {
-        self.requester
     }
 
     pub fn timestamp(&self) -> Timestamp {
@@ -37,8 +31,6 @@ impl From<RequestPacket> for Vec<u8> {
         buffer.push(MutexPacketType::Request.into());
         let id: [u8; 4] = packet.id.into();
         buffer.extend(id.iter());
-        let requester: [u8; 2] = packet.requester.into();
-        buffer.extend(requester.iter());
         let timestamp: [u8; 16] = packet.timestamp.into();
         buffer.extend(timestamp.iter());
         buffer
@@ -66,12 +58,10 @@ impl TryFrom<Vec<u8>> for RequestPacket {
         }
 
         let id = value[1..9].try_into().unwrap();
-        let requester = value[9..11].try_into().unwrap();
         let timestamp: Timestamp = value[11..27].into();
 
         Ok(Self {
             id,
-            requester,
             timestamp,
         })
     }

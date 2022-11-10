@@ -3,20 +3,15 @@ use crate::dist_mutex::{ResourceId, ServerId};
 
 pub struct OkPacket {
     id: ResourceId,
-    sender: ServerId,
 }
 
 impl OkPacket {
-    pub fn new(id: ResourceId, sender: ServerId) -> Self {
-        Self { id, sender }
+    pub fn new(id: ResourceId) -> Self {
+        Self { id }
     }
 
     pub fn id(&self) -> ResourceId {
         self.id
-    }
-
-    pub fn sender(&self) -> ServerId {
-        self.sender
     }
 }
 
@@ -41,9 +36,8 @@ impl TryFrom<Vec<u8>> for OkPacket {
         }
 
         let id = value[1..9].try_into().unwrap();
-        let sender = value[9..17].try_into().unwrap();
 
-        Ok(Self { id, sender })
+        Ok(Self { id })
     }
 }
 
@@ -53,8 +47,6 @@ impl From<OkPacket> for Vec<u8> {
         buffer.push(MutexPacketType::Ok.into());
         let id: [u8; 4] = packet.id.into();
         buffer.extend(id.iter());
-        let sender: [u8; 2] = packet.sender.into();
-        buffer.extend(sender.iter());
         buffer
     }
 }

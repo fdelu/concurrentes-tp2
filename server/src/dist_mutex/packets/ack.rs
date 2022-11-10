@@ -3,23 +3,17 @@ use crate::dist_mutex::{ResourceId, ServerId};
 
 pub struct AckPacket {
     id: ResourceId,
-    acker: ServerId,
 }
 
 impl AckPacket {
-    pub fn new(id: ResourceId, server_id: ServerId) -> Self {
+    pub fn new(id: ResourceId) -> Self {
         Self {
             id,
-            acker: server_id,
         }
     }
 
     pub fn id(&self) -> ResourceId {
         self.id
-    }
-
-    pub fn acker(&self) -> ServerId {
-        self.acker
     }
 }
 
@@ -44,21 +38,18 @@ impl TryFrom<Vec<u8>> for AckPacket {
         }
 
         let id = value[1..9].try_into().unwrap();
-        let server_id = value[9..17].try_into().unwrap();
 
         Ok(Self {
             id,
-            acker: server_id,
         })
     }
 }
 
 impl From<AckPacket> for Vec<u8> {
-    fn from(packet: AckPacket) -> Self {
+    fn from(_: AckPacket) -> Self {
         let mut buffer = Vec::new();
         buffer.push(MutexPacketType::Ack.into());
-        let server_id: [u8; 2] = packet.acker.into();
-        buffer.extend(server_id.iter());
+
         buffer
     }
 }

@@ -14,11 +14,13 @@ mod messages;
 mod socket;
 
 pub use self::messages::*;
+pub(crate) use self::socket::ReceivedPacket;
+
 use self::{
     connection::Connection,
     error::SocketError,
     listener::Listener,
-    socket::{ReceivedPacket, Socket, SocketEnd, SocketSend},
+    socket::{Socket, SocketEnd, SocketSend},
 };
 
 pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {

@@ -6,13 +6,13 @@ use actix::prelude::*;
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct OkMessage {
-    sender: ServerId,
+    from: ServerId,
 }
 
 impl OkMessage {
-    pub fn new(packet: OkPacket) -> Self {
+    pub fn new(from: ServerId, _: OkPacket) -> Self {
         Self {
-            sender: packet.sender(),
+            from
         }
     }
 }
@@ -21,7 +21,7 @@ impl<P: PacketDispatcherTrait> Handler<OkMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
-        self.ok_received.insert(msg.sender);
+        self.ok_received.insert(msg.from);
         if self.are_all_ok_received() {
             self.all_oks_received_channel.take().unwrap().send(()).unwrap();
         }

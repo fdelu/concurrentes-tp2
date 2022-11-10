@@ -1,8 +1,8 @@
 use crate::dist_mutex::packets::MutexPacket;
-use crate::dist_mutex::{DistMutexTrait, ServerId, TCPActorTrait};
+use crate::dist_mutex::{DistMutexTrait, ServerId};
 use crate::network::SendPacket;
 use crate::packet_dispatcher::packet::PacketType;
-use crate::packet_dispatcher::PacketDispatcher;
+use crate::packet_dispatcher::{PacketDispatcher, TCPActorTrait};
 use actix::prelude::*;
 
 #[derive(Message)]

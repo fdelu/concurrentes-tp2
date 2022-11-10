@@ -6,13 +6,13 @@ use actix::prelude::*;
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct AckMessage {
-    acker: ServerId,
+    from: ServerId,
 }
 
 impl AckMessage {
-    pub fn new(packet: AckPacket) -> Self {
+    pub fn new(from: ServerId, _: AckPacket) -> Self {
         Self {
-            acker: packet.acker(),
+            from,
         }
     }
 }
@@ -21,6 +21,6 @@ impl<P: PacketDispatcherTrait> Handler<AckMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: AckMessage, _ctx: &mut Self::Context) {
-        self.ack_received.insert(msg.acker);
+        self.ack_received.insert(msg.from);
     }
 }
