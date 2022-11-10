@@ -36,7 +36,7 @@ pub struct ConnectionHandler {
 impl Actor for ConnectionHandler {
     type Context = Context<Self>;
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         self.join_listener.abort();
     }
 }

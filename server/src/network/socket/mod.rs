@@ -1,9 +1,9 @@
 use std::marker::Send;
 use std::net::SocketAddr;
 
-use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
 use actix_rt::net::TcpStream;
+use common::AHandler;
 use tokio::spawn;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -40,15 +40,11 @@ impl Actor for Socket {
 }
 
 impl Socket {
-    pub fn new<A>(
+    pub fn new<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
         actor_read_to: Addr<A>,
         socket_addr: SocketAddr,
         stream: Option<TcpStream>,
-    ) -> Socket
-    where
-        A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
-        A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
-    {
+    ) -> Socket {
         let (write_sender, write_receiver) = unbounded_channel();
         let actor_end = actor_read_to.clone();
 
@@ -68,17 +64,13 @@ impl Socket {
         }
     }
 
-    async fn setup_runners<A>(
+    async fn setup_runners<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
         actor: Addr<A>,
         stream: Option<TcpStream>,
         my_addr: SocketAddr,
         write_receiver: UnboundedReceiver<WriterSend>,
         stop_rx: oneshot::Receiver<()>,
-    ) -> Result<(), SocketError>
-    where
-        A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
-        A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
-    {
+    ) -> Result<(), SocketError> {
         let stream = match stream {
             Some(stream) => stream,
             None => TcpStream::connect(my_addr).await?,
@@ -103,21 +95,19 @@ impl Socket {
         Ok(())
     }
 
-    fn on_end<A>(actor: Addr<A>, my_addr: SocketAddr) -> OnEnd
-    where
-        A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
-        A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
-    {
+    fn on_end<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
+        actor: Addr<A>,
+        my_addr: SocketAddr,
+    ) -> OnEnd {
         Box::new(move || {
             actor.do_send(SocketEnd { addr: my_addr });
         })
     }
 
-    fn on_read<A>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead
-    where
-        A: Actor + Handler<SocketReceived> + Handler<SocketEnd>,
-        A::Context: ToEnvelope<A, SocketReceived> + ToEnvelope<A, SocketEnd>,
-    {
+    fn on_read<A: AHandler<SocketReceived> + AHandler<SocketEnd>>(
+        actor: Addr<A>,
+        my_addr: SocketAddr,
+    ) -> OnRead {
         Box::new(move |data: Vec<u8>| {
             actor.do_send(SocketReceived {
                 data,

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use actix::{dev::ToEnvelope, Actor, Addr, Handler};
 use actix_rt::net::TcpStream;
+use common::AHandler;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
@@ -22,11 +23,7 @@ where
 
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(120);
 
-impl<A> SocketStatus<A>
-where
-    A: Actor + Handler<SocketEnd> + Handler<SocketReceived>,
-    A::Context: ToEnvelope<A, SocketEnd> + ToEnvelope<A, SocketReceived>,
-{
+impl<A: AHandler<SocketEnd> + AHandler<SocketReceived>> SocketStatus<A> {
     pub fn new(
         callback_actor: Addr<A>,
         socket_addr: SocketAddr,
