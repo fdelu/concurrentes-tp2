@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem::replace, net::SocketAddr};
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
-use actix_rt::{net::TcpStream, task::JoinHandle};
+use actix_rt::task::JoinHandle;
 use tokio::{
     net::ToSocketAddrs,
     sync::{
@@ -22,7 +22,7 @@ pub use self::messages::*;
 use self::{
     error::SocketError,
     listener::{Listener, OnConnection},
-    socket::{Socket, SocketEnd, SocketReceived, SocketSend},
+    socket::{SocketEnd, SocketReceived, SocketSend},
     status::SocketStatus,
 };
 
@@ -36,7 +36,7 @@ pub struct ConnectionHandler {
 impl Actor for ConnectionHandler {
     type Context = Context<Self>;
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         self.join_listener.abort();
     }
 }
@@ -73,16 +73,6 @@ impl ConnectionHandler {
     fn on_connection(actor: Addr<ConnectionHandler>) -> OnConnection {
         Box::new(move |stream, addr| actor.do_send(AddStream { addr, stream }))
     }
-
-    fn create_socket(
-        this_actor: Addr<Self>,
-        addr: SocketAddr,
-        stream: Option<TcpStream>,
-    ) -> SocketStatus<Self> {
-        let this_actor_clone = this_actor.clone();
-        let socket = Socket::new(this_actor, addr, stream).start();
-        SocketStatus::new(socket, this_actor_clone, addr)
-    }
 }
 
 // Public messages
@@ -96,9 +86,9 @@ impl Handler<SendPacket> for ConnectionHandler {
         let status = self
             .connections
             .entry(msg.to)
-            .or_insert_with(move || Self::create_socket(this_actor, socket_addr, None));
+            .or_insert_with(move || SocketStatus::new(this_actor, socket_addr, None));
 
-        status.restart_task();
+        status.restart_timeout();
         let socket = status.get_socket();
         async move { socket.send(SocketSend { data: msg.data }).await? }
             .into_actor(self)
@@ -138,7 +128,7 @@ impl Handler<AddStream> for ConnectionHandler {
         let this_actor = _ctx.address();
         self.connections.insert(
             msg.addr,
-            Self::create_socket(this_actor, msg.addr, Some(msg.stream)),
+            SocketStatus::new(this_actor, msg.addr, Some(msg.stream)),
         );
     }
 }
@@ -156,7 +146,7 @@ impl Handler<SocketReceived> for ConnectionHandler {
 
     fn handle(&mut self, msg: SocketReceived, _ctx: &mut Self::Context) {
         if let Some(status) = self.connections.get_mut(&msg.addr) {
-            status.restart_task();
+            status.restart_timeout();
         }
         if let Err(e) = self.incoming_buffer.send((msg.addr, msg.data)) {
             println!("Error sending through channel: {e}");

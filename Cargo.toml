@@ -3,6 +3,5 @@
 members = [
     "server",
     "coffee_maker",
-    "firewall",
     "common"
 ]

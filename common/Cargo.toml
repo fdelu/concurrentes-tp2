@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix = {version = "0.13.0", optional = true }
+
+[features]
+message_handler = ["dep:actix"]
