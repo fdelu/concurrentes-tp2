@@ -20,6 +20,10 @@ impl Timestamp {
                 .as_millis(),
         }
     }
+
+    pub fn time(&self) -> u128 {
+        self.time
+    }
 }
 
 impl Default for Timestamp {

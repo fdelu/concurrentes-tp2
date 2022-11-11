@@ -62,7 +62,9 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        if let Some(join) = self.join_listener.take() { join.abort() }
+        if let Some(join) = self.join_listener.take() {
+            join.abort()
+        }
     }
 }
 

@@ -33,8 +33,7 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
         self.clean_state();
         let timestamp = Timestamp::new();
 
-        println!("{} Acquiring lock with timestamp {:?}", self, timestamp);
-        println!("{} Connected servers: {:?}", self, self.connected_servers);
+        println!("{} Acquiring lock with timestamp {}", self, timestamp);
         self.broadcast_lock_request(timestamp);
         self.lock_timestamp = Some(timestamp);
 

@@ -59,8 +59,7 @@ impl PacketDispatcher {
     fn handle_mutex(&mut self, from: ServerId, packet: MutexPacket, ctx: &mut Context<Self>) {
         match packet {
             MutexPacket::Request(request) => {
-                println!("Received request from {:?}", from);
-                println!("{:?}", request);
+                println!("Received request from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, request.id());
                 let message = RequestMessage::new(from, request);
 

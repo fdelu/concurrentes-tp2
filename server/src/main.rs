@@ -5,6 +5,7 @@ use crate::packet_dispatcher::messages::add_mutex::AddMutexMessage;
 use crate::packet_dispatcher::PacketDispatcher;
 use std::collections::HashSet;
 use std::thread;
+use tokio::{try_join};
 
 pub mod dist_mutex;
 mod network;
@@ -36,18 +37,23 @@ async fn main() {
         })
         .unwrap();
 
-    let resource_id = ResourceId::new(1);
+    let resource_id_1 = ResourceId::new(1);
+    let resource_id_2 = ResourceId::new(2);
 
-    let mutex_addr = dispatcher
-        .send(AddMutexMessage::new(resource_id))
+    let mutex_addr_1 = dispatcher
+        .send(AddMutexMessage::new(resource_id_1))
         .await
         .unwrap();
 
+    let mutex_addr_2 = dispatcher
+        .send(AddMutexMessage::new(resource_id_2))
+        .await
+        .unwrap();
+
+
     thread::sleep(std::time::Duration::from_millis(5000));
     println!("Acquiring lock");
-    if mutex_addr.send(AcquireMessage::new()).await.is_err() {
-        println!("Error acquiring lock");
-    } else {
-        println!("Lock acquired");
-    }
+    let f1 = mutex_addr_1.send(AcquireMessage::new());
+    let f2 = mutex_addr_2.send(AcquireMessage::new());
+    try_join!(f1, f2).unwrap();
 }

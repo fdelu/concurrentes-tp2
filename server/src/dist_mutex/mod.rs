@@ -8,17 +8,15 @@ use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use actix::prelude::*;
 use common::AHandler;
 use std::collections::HashSet;
-use std::fmt::Display;
-use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-use crate::network::{ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
 pub mod messages;
 pub mod packets;
+pub mod impl_traits;
 
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
 const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
@@ -35,21 +33,9 @@ pub struct DistMutex<P: PacketDispatcherTrait> {
     all_oks_received_channel: Option<oneshot::Sender<()>>,
 }
 
-impl<P: PacketDispatcherTrait> Display for DistMutex<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[Mutex {}]", self.id)
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ResourceId {
     id: u32,
-}
-
-impl Display for ResourceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
-    }
 }
 
 impl ResourceId {
@@ -58,61 +44,14 @@ impl ResourceId {
     }
 }
 
-impl From<&[u8]> for ResourceId {
-    fn from(bytes: &[u8]) -> Self {
-        println!("bytes: {:?}", bytes);
-        let id = u32::from_be_bytes(bytes.try_into().unwrap());
-        Self { id }
-    }
-}
-
-impl From<ResourceId> for [u8; 4] {
-    fn from(id: ResourceId) -> Self {
-        let bytes = id.id.to_be_bytes();
-        println!("bytes From<ResourceId>: {:?}", bytes);
-        bytes
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ServerId {
     pub id: u16,
 }
 
-impl Display for ServerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[ServerId {}]", self.id)
-    }
-}
-
 impl ServerId {
     pub fn new(id: u16) -> Self {
         Self { id }
-    }
-}
-
-impl From<ServerId> for SocketAddr {
-    fn from(server_id: ServerId) -> Self {
-        SocketAddr::new(LOCALHOST.parse().unwrap(), server_id.id)
-    }
-}
-
-impl From<&[u8]> for ServerId {
-    fn from(bytes: &[u8]) -> Self {
-        let id = u16::from_be_bytes(bytes.try_into().unwrap());
-        Self { id }
-    }
-}
-
-impl From<ServerId> for [u8; 2] {
-    fn from(server_id: ServerId) -> Self {
-        server_id.id.to_be_bytes()
-    }
-}
-
-impl From<SocketAddr> for ServerId {
-    fn from(addr: SocketAddr) -> Self {
-        Self { id: addr.port() }
     }
 }
 
@@ -157,9 +96,7 @@ impl<P: PacketDispatcherTrait> Actor for DistMutex<P> {
 
 impl<P: PacketDispatcherTrait> DistMutex<P> {
     pub fn add_connected_server(&mut self, server_id: ServerId) {
-        println!("{} add_connected_server: {}", self, server_id);
         self.connected_servers.push(server_id);
-        println!("{} connected_servers: {:?}", self, self.connected_servers);
     }
 
     fn are_all_ok_received(&self) -> bool {
