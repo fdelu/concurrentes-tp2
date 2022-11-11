@@ -3,7 +3,7 @@ use std::{collections::HashMap, net::SocketAddr};
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
-use actix_rt::{net::TcpStream, task::JoinHandle};
+use actix_rt::task::JoinHandle;
 use tokio::net::ToSocketAddrs;
 
 mod connection;
@@ -17,7 +17,7 @@ use self::{
     connection::Connection,
     error::SocketError,
     listener::Listener,
-    socket::{ReceivedPacket, Socket, SocketEnd, SocketSend},
+    socket::{ReceivedPacket, SocketEnd, SocketSend},
 };
 use common::AHandler;
 
@@ -36,22 +36,12 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
         }
     }
 
-    fn create_connection(
-        this: Addr<Self>,
-        receiver: Addr<A>,
-        addr: SocketAddr,
-        stream: Option<TcpStream>,
-    ) -> Connection<Self> {
-        let socket = Socket::new(receiver, this.clone(), addr, stream);
-        Connection::new(this, socket)
-    }
-
     fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
         let receiver = self.received_handler.clone();
         let connection = self
             .connections
             .entry(addr)
-            .or_insert_with(move || Self::create_connection(this, receiver, addr, None));
+            .or_insert_with(move || Connection::new(this, receiver, addr, None));
         connection
     }
 }
@@ -108,7 +98,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
-        let connection = Self::create_connection(
+        let connection = Connection::new(
             ctx.address(),
             self.received_handler.clone(),
             msg.addr,

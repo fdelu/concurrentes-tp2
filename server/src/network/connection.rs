@@ -1,13 +1,14 @@
 use std::net::SocketAddr;
 
 use actix::{Actor, Addr};
+use actix_rt::net::TcpStream;
 use common::AHandler;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
 };
 
-use super::socket::{Socket, SocketEnd};
+use super::socket::{ReceivedPacket, Socket, SocketEnd};
 
 pub struct Connection<A: AHandler<SocketEnd>> {
     socket: Addr<Socket>,
@@ -19,8 +20,13 @@ pub struct Connection<A: AHandler<SocketEnd>> {
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(120);
 
 impl<A: AHandler<SocketEnd>> Connection<A> {
-    pub fn new(end_handler: Addr<A>, socket: Socket) -> Self {
-        let addr = socket.get_addr();
+    pub fn new<B: AHandler<ReceivedPacket>>(
+        end_handler: Addr<A>,
+        received_handler: Addr<B>,
+        addr: SocketAddr,
+        stream: Option<TcpStream>,
+    ) -> Self {
+        let socket = Socket::new(received_handler, end_handler.clone(), addr, stream);
         let mut this = Connection {
             socket: socket.start(),
             cancel_task: None,
