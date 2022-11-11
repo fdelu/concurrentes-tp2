@@ -4,7 +4,7 @@ use tokio::sync::{mpsc::error::SendError, oneshot};
 
 use crate::network::error::SocketError;
 
-#[derive(Message, Debug)]
+#[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "Result<(), SocketError>")]
 pub struct SocketSend {
     pub data: Vec<u8>,

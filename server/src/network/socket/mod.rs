@@ -1,7 +1,10 @@
 use std::marker::Send;
 use std::net::SocketAddr;
 
+#[cfg(test)]
+use super::messages::tests::MockTcpStream as TcpStream;
 use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
+#[cfg(not(test))]
 use actix_rt::net::TcpStream;
 use common::AHandler;
 use tokio::spawn;
@@ -10,34 +13,24 @@ use tokio::sync::{
     oneshot,
 };
 
+use super::error::SocketError;
+
 mod messages;
 mod read;
 mod write;
 
-pub use messages::*;
-
 use self::read::ReaderLoop;
 use self::write::WriterLoop;
 
-use super::error::SocketError;
+pub use self::write::MAX_MESSAGE_SIZE;
+pub use messages::*;
 
 pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
-pub use self::write::MAX_MESSAGE_SIZE;
-
 pub struct Socket {
     write_sender: UnboundedSender<WriterSend>,
     stop_tx: Option<oneshot::Sender<()>>,
-    addr: SocketAddr,
-}
-
-impl Actor for Socket {
-    type Context = Context<Self>;
-
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        self.stop_tx.take().and_then(|tx| tx.send(()).ok());
-    }
 }
 
 impl Socket {
@@ -70,12 +63,7 @@ impl Socket {
         Socket {
             write_sender,
             stop_tx: Some(stop_tx),
-            addr: socket_addr,
         }
-    }
-
-    pub fn get_addr(&self) -> SocketAddr {
-        self.addr
     }
 
     async fn run<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
@@ -126,6 +114,14 @@ impl Socket {
     }
 }
 
+impl Actor for Socket {
+    type Context = Context<Self>;
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        self.stop_tx.take().and_then(|tx| tx.send(()).ok());
+    }
+}
+
 impl Handler<SocketSend> for Socket {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
@@ -139,6 +135,48 @@ impl Handler<SocketSend> for Socket {
             Box::pin(async move { Err(e.into()) }.into_actor(self))
         } else {
             Box::pin(async move { result_rx.await? }.into_actor(self))
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::{
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
+
+    use actix::{Actor, Addr, Context, Handler};
+    use common::AHandler;
+
+    use crate::network::error::SocketError;
+
+    use super::{ReceivedPacket, SocketEnd, SocketSend, TcpStream};
+
+    pub struct MockSocket {
+        pub sent: Arc<Mutex<Vec<SocketSend>>>,
+    }
+    impl Actor for MockSocket {
+        type Context = Context<Self>;
+    }
+    impl Handler<SocketSend> for MockSocket {
+        type Result = Result<(), SocketError>;
+
+        fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Result<(), SocketError> {
+            self.sent.lock().unwrap().push(msg);
+            Ok(())
+        }
+    }
+    impl MockSocket {
+        pub fn new<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+            _: Addr<A>,
+            _: Addr<B>,
+            _: SocketAddr,
+            _: Option<TcpStream>,
+        ) -> Self {
+            MockSocket {
+                sent: Arc::new(Mutex::new(Vec::new())),
+            }
         }
     }
 }

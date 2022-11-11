@@ -1,6 +1,9 @@
-use std::{io, net::SocketAddr};
+use std::io;
 
+#[cfg(test)]
+use self::tests::MockTcpListener as TcpListener;
 use actix::Addr;
+#[cfg(not(test))]
 use actix_rt::net::TcpListener;
 use common::AHandler;
 use tokio::{
@@ -8,20 +11,20 @@ use tokio::{
     task::{spawn, JoinHandle},
 };
 
+#[cfg(test)]
+use mockall::automock;
+
 use super::{error::SocketError, AddStream};
 
 pub struct Listener {
     listener: TcpListener,
 }
 
+#[cfg_attr(test, automock)]
 impl Listener {
-    pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
+    pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         Ok(Self { listener })
-    }
-
-    pub fn get_addr(&self) -> io::Result<SocketAddr> {
-        self.listener.local_addr()
     }
 
     async fn add_connection<A: AHandler<AddStream>>(
@@ -41,5 +44,21 @@ impl Listener {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::network::messages::tests::MockTcpStream as TcpStream;
+    use mockall::mock;
+    use std::{io, net::SocketAddr};
+    use tokio::net::ToSocketAddrs;
+
+    mock! {
+        pub TcpListener {
+            pub async fn accept(&mut self) -> io::Result<(TcpStream, SocketAddr)>;
+            pub fn local_addr(&self) -> io::Result<SocketAddr>;
+            pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self>;
+        }
     }
 }

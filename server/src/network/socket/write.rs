@@ -62,7 +62,7 @@ mod tests {
         let input = [1, 2, 2, 1];
         let mut expected = MAGIC_NUMBER.to_vec();
         expected.extend_from_slice(&[0, 4]); // Largo 4
-        expected.extend(&input);
+        expected.extend(input);
         let mock_writer = Builder::new().write(&expected).build();
         let (tx, rx) = unbounded_channel();
         let (result_tx, result_rx) = oneshot::channel();
@@ -93,12 +93,12 @@ mod tests {
         let input_1 = [1, 2, 2, 1];
         let mut expected_1 = MAGIC_NUMBER.to_vec();
         expected_1.extend_from_slice(&[0, 4]); // Largo 4
-        expected_1.extend(&input_1);
+        expected_1.extend(input_1);
 
         let input_2 = [9, 7];
         let mut expected_2 = MAGIC_NUMBER.to_vec();
         expected_2.extend_from_slice(&[0, 2]); // Largo 2
-        expected_2.extend(&input_2);
+        expected_2.extend(input_2);
 
         let mock_writer = Builder::new().write(&expected_1).write(&expected_2).build();
         let (tx, rx) = unbounded_channel();

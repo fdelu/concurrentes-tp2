@@ -78,7 +78,9 @@ mod tests {
     };
     use tokio_test::{block_on, io::Builder};
 
-    fn setup(input: Vec<Vec<u8>>) -> (Arc<Mutex<Vec<Vec<u8>>>>, Arc<AtomicBool>) {
+    type DataVec = Vec<Vec<u8>>;
+
+    fn setup(input: Vec<Vec<u8>>) -> (Arc<Mutex<DataVec>>, Arc<AtomicBool>) {
         let mut builder = Builder::new();
         for i in input {
             builder.read(&i);
@@ -94,7 +96,7 @@ mod tests {
 
         let socket_read = ReaderLoop::new(mock_reader, on_read, on_end);
         block_on(socket_read.run());
-        return (read, ended);
+        (read, ended)
     }
 
     #[test]
