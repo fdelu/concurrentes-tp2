@@ -50,3 +50,55 @@ impl From<AckPacket> for Vec<u8> {
         buffer
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_packet() {
+        let id = ResourceId::new(1);
+        let packet = AckPacket::new(id);
+        assert_eq!(packet.id(), id);
+    }
+
+    #[test]
+    fn test_serialize_packet() {
+        let id = ResourceId::new(1);
+        let packet = AckPacket::new(id);
+        let buffer = Vec::from(packet);
+        assert_eq!(buffer.len(), 5);
+        assert_eq!(buffer[0], MutexPacketType::Ack.into());
+        assert_eq!(buffer[1..5], [0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn test_deserialize_packet() {
+        let buffer = vec![MutexPacketType::Ack.into(), 0, 0, 0, 1];
+        let packet = AckPacket::try_from(buffer).unwrap();
+        assert_eq!(packet.id(), ResourceId::new(1));
+    }
+
+    #[test]
+    fn test_deserialize_invalid_packet() {
+        let buffer = vec![MutexPacketType::Ok.into(), 0, 0, 0, 1];
+        let packet = AckPacket::try_from(buffer);
+        assert!(packet.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_invalid_length() {
+        let buffer = vec![MutexPacketType::Ack.into(), 0, 0, 0];
+        let packet = AckPacket::try_from(buffer);
+        assert!(packet.is_err());
+    }
+
+    #[test]
+    fn test_serialize_deserialize() {
+        let id = ResourceId::new(1);
+        let packet = AckPacket::new(id);
+        let buffer = Vec::from(packet);
+        let packet = AckPacket::try_from(buffer).unwrap();
+        assert_eq!(packet.id(), id);
+    }
+}

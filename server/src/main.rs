@@ -3,11 +3,8 @@ use crate::dist_mutex::{DistMutex, MutexCreationTrait, ResourceId, ServerId};
 use crate::network::Listen;
 use crate::packet_dispatcher::messages::add_mutex::AddMutexMessage;
 use crate::packet_dispatcher::PacketDispatcher;
-use actix::prelude::*;
 use std::collections::HashSet;
-use std::net::SocketAddr;
 use std::thread;
-use std::thread::sleep;
 
 pub mod dist_mutex;
 mod network;

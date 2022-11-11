@@ -60,3 +60,52 @@ impl TryFrom<Vec<u8>> for RequestPacket {
         Ok(Self { id, timestamp })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_packet() {
+        let id = ResourceId::new(1);
+        let timestamp = Timestamp::new();
+        let packet = RequestPacket::new(id, timestamp);
+        let buffer: Vec<u8> = packet.into();
+        let packet = RequestPacket::try_from(buffer).unwrap();
+        assert_eq!(packet.id(), id);
+        assert_eq!(packet.timestamp(), timestamp);
+    }
+
+    #[test]
+    fn test_invalid_packet() {
+        let id = ResourceId::new(1);
+        let timestamp = Timestamp::new();
+        let packet = RequestPacket::new(id, timestamp);
+        let mut buffer: Vec<u8> = packet.into();
+        buffer[0] = 1;
+        let packet = RequestPacket::try_from(buffer);
+        assert!(packet.is_err());
+    }
+
+    #[test]
+    fn test_invalid_length() {
+        let id = ResourceId::new(1);
+        let timestamp = Timestamp::new();
+        let packet = RequestPacket::new(id, timestamp);
+        let mut buffer: Vec<u8> = packet.into();
+        buffer.pop();
+        let packet = RequestPacket::try_from(buffer);
+        assert!(packet.is_err());
+    }
+
+    #[test]
+    fn test_serialize_deserialize() {
+        let id = ResourceId::new(1);
+        let timestamp = Timestamp::new();
+        let packet = RequestPacket::new(id, timestamp);
+        let buffer: Vec<u8> = packet.into();
+        let packet = RequestPacket::try_from(buffer).unwrap();
+        assert_eq!(packet.id(), id);
+        assert_eq!(packet.timestamp(), timestamp);
+    }
+}

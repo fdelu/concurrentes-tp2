@@ -62,7 +62,7 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        self.join_listener.take().map(|join| join.abort());
+        if let Some(join) = self.join_listener.take() { join.abort() }
     }
 }
 
@@ -88,7 +88,7 @@ impl<A: AHandler<ReceivedPacket>, T: ToSocketAddrs + 'static> Handler<Listen<T>>
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, msg: Listen<T>, _ctx: &mut Context<Self>) -> Self::Result {
-        if (self.join_listener.is_some()) {
+        if self.join_listener.is_some() {
             return async { Err(SocketError::new("Already listening for new connection")) }
                 .into_actor(self)
                 .boxed_local();
