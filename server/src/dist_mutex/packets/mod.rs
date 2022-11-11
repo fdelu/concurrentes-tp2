@@ -43,6 +43,8 @@ impl TryFrom<Vec<u8>> for MutexPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        println!("MutexPacket::try_from: {:?}", value);
+
         if value.len() < 1 {
             return Err(format!(
                 "Invalid packet length: expected at least 1, got {}",

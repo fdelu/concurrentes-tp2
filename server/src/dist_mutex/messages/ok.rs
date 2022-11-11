@@ -11,9 +11,7 @@ pub struct OkMessage {
 
 impl OkMessage {
     pub fn new(from: ServerId, _: OkPacket) -> Self {
-        Self {
-            from
-        }
+        Self { from }
     }
 }
 
@@ -23,7 +21,15 @@ impl<P: PacketDispatcherTrait> Handler<OkMessage> for DistMutex<P> {
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
         self.ok_received.insert(msg.from);
         if self.are_all_ok_received() {
-            self.all_oks_received_channel.take().unwrap().send(()).unwrap();
+            println!(
+                "{} All ok received ({:?}) ({:?})",
+                self, self.ok_received, self.connected_servers
+            );
+            self.all_oks_received_channel
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
         }
     }
 }

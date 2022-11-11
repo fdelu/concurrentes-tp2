@@ -8,25 +8,23 @@ use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use actix::prelude::*;
 use common::AHandler;
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
-use tokio::time;
 
-use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
+use crate::network::{ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
 pub mod messages;
 pub mod packets;
 
-const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(3);
+const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
 const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
 pub const LOCALHOST: &str = "127.0.0.1";
 
 pub struct DistMutex<P: PacketDispatcherTrait> {
-    server_id: ServerId,
     id: ResourceId,
     dispatcher: Addr<P>,
     lock_timestamp: Option<Timestamp>,
@@ -37,13 +35,32 @@ pub struct DistMutex<P: PacketDispatcherTrait> {
     all_oks_received_channel: Option<oneshot::Sender<()>>,
 }
 
+impl<P: PacketDispatcherTrait> Display for DistMutex<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[Mutex {}]", self.id)
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ResourceId {
     id: u32,
 }
 
+impl Display for ResourceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
+impl ResourceId {
+    pub fn new(id: u32) -> Self {
+        Self { id }
+    }
+}
+
 impl From<&[u8]> for ResourceId {
     fn from(bytes: &[u8]) -> Self {
+        println!("bytes: {:?}", bytes);
         let id = u32::from_be_bytes(bytes.try_into().unwrap());
         Self { id }
     }
@@ -51,13 +68,27 @@ impl From<&[u8]> for ResourceId {
 
 impl From<ResourceId> for [u8; 4] {
     fn from(id: ResourceId) -> Self {
-        id.id.to_be_bytes()
+        let bytes = id.id.to_be_bytes();
+        println!("bytes From<ResourceId>: {:?}", bytes);
+        bytes
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ServerId {
     pub id: u16,
+}
+
+impl Display for ServerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[ServerId {}]", self.id)
+    }
+}
+
+impl ServerId {
+    pub fn new(id: u16) -> Self {
+        Self { id }
+    }
 }
 
 impl From<ServerId> for SocketAddr {
@@ -91,7 +122,6 @@ pub enum MutexError {
 
 type MutexResult<T> = Result<T, MutexError>;
 
-
 pub trait DistMutexTrait:
     AHandler<AcquireMessage>
     + AHandler<ReleaseMessage>
@@ -102,17 +132,14 @@ pub trait DistMutexTrait:
 }
 
 pub trait MutexCreationTrait<P: PacketDispatcherTrait> {
-    fn new(
-        server_id: ServerId,
-        id: ResourceId,
-        dispatcher: Addr<P>,
-    ) -> Self;
+    fn new(id: ResourceId, dispatcher: Addr<P>) -> Self;
 }
 
-impl<P: PacketDispatcherTrait> DistMutex<P> {
-    fn new(server_id: ServerId, id: ResourceId, dispatcher: Addr<P>) -> Self {
+impl<P: PacketDispatcherTrait> DistMutexTrait for DistMutex<P> {}
+
+impl<P: PacketDispatcherTrait> MutexCreationTrait<P> for DistMutex<P> {
+    fn new(id: ResourceId, dispatcher: Addr<P>) -> Self {
         Self {
-            server_id,
             id,
             dispatcher,
             lock_timestamp: None,
@@ -124,24 +151,17 @@ impl<P: PacketDispatcherTrait> DistMutex<P> {
     }
 }
 
-impl<P: PacketDispatcherTrait> DistMutexTrait for DistMutex<P> {
-}
-
-impl<P: PacketDispatcherTrait> MutexCreationTrait<P> for DistMutex<P> {
-    fn new(
-        server_id: ServerId,
-        id: ResourceId,
-        dispatcher: Addr<P>,
-    ) -> Self {
-        Self::new(server_id, id, dispatcher)
-    }
-}
-
 impl<P: PacketDispatcherTrait> Actor for DistMutex<P> {
     type Context = Context<Self>;
 }
 
 impl<P: PacketDispatcherTrait> DistMutex<P> {
+    pub fn add_connected_server(&mut self, server_id: ServerId) {
+        println!("{} add_connected_server: {}", self, server_id);
+        self.connected_servers.push(server_id);
+        println!("{} connected_servers: {:?}", self, self.connected_servers);
+    }
+
     fn are_all_ok_received(&self) -> bool {
         self.connected_servers
             .iter()
@@ -165,5 +185,10 @@ impl<P: PacketDispatcherTrait> DistMutex<P> {
                 ))
                 .unwrap();
         });
+    }
+
+    fn disconnect_servers_with_no_ack(&mut self) {
+        self.connected_servers
+            .retain(|server_id| self.ack_received.contains(server_id));
     }
 }

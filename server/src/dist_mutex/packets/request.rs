@@ -10,10 +10,7 @@ pub struct RequestPacket {
 
 impl RequestPacket {
     pub fn new(id: ResourceId, timestamp: Timestamp) -> Self {
-        Self {
-            id,
-            timestamp,
-        }
+        Self { id, timestamp }
     }
 
     pub fn id(&self) -> ResourceId {
@@ -41,9 +38,9 @@ impl TryFrom<Vec<u8>> for RequestPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 9 {
+        if value.len() != 21 {
             return Err(format!(
-                "Invalid packet length: expected 9, got {}",
+                "Invalid packet length: expected 21, got {}",
                 value.len()
             ));
         }
@@ -57,12 +54,9 @@ impl TryFrom<Vec<u8>> for RequestPacket {
             ));
         }
 
-        let id = value[1..9].try_into().unwrap();
-        let timestamp: Timestamp = value[11..27].into();
+        let id = value[1..5].into();
+        let timestamp: Timestamp = value[5..21].into();
 
-        Ok(Self {
-            id,
-            timestamp,
-        })
+        Ok(Self { id, timestamp })
     }
 }

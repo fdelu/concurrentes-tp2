@@ -18,7 +18,7 @@ impl SendFromMutexMessage {
     }
 }
 
-impl<D: DistMutexTrait, T: TCPActorTrait> Handler<SendFromMutexMessage> for PacketDispatcher<D, T> {
+impl Handler<SendFromMutexMessage> for PacketDispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: SendFromMutexMessage, _ctx: &mut Self::Context) {

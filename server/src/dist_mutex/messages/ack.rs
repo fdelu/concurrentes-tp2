@@ -11,9 +11,7 @@ pub struct AckMessage {
 
 impl AckMessage {
     pub fn new(from: ServerId, _: AckPacket) -> Self {
-        Self {
-            from,
-        }
+        Self { from }
     }
 }
 

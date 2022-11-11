@@ -19,9 +19,9 @@ impl TryFrom<Vec<u8>> for OkPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 17 {
+        if value.len() != 5 {
             return Err(format!(
-                "Invalid packet length: expected 17, got {}",
+                "Invalid packet length: expected 5, got {}",
                 value.len()
             ));
         }
@@ -35,7 +35,7 @@ impl TryFrom<Vec<u8>> for OkPacket {
             ));
         }
 
-        let id = value[1..9].try_into().unwrap();
+        let id = value[1..5].try_into().unwrap();
 
         Ok(Self { id })
     }

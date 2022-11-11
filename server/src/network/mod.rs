@@ -7,7 +7,7 @@ use actix_rt::{net::TcpStream, task::JoinHandle};
 use tokio::net::ToSocketAddrs;
 
 mod connection;
-mod error;
+pub(crate) mod error;
 mod listener;
 mod messages;
 mod socket;
@@ -30,7 +30,7 @@ pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
 }
 
 impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
-    fn new(received_handler: Addr<A>) -> Self {
+    pub fn new(received_handler: Addr<A>) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,

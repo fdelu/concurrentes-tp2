@@ -1,12 +1,12 @@
 use actix::prelude::*;
 
 use crate::dist_mutex::packets::MutexPacket;
-use crate::dist_mutex::{DistMutexTrait, MutexCreationTrait};
+use crate::dist_mutex::MutexCreationTrait;
 use crate::network::ReceivedPacket;
 use crate::packet_dispatcher::packet::PacketType;
-use crate::packet_dispatcher::{PacketDispatcher, TCPActorTrait};
+use crate::packet_dispatcher::PacketDispatcher;
 
-impl<D: DistMutexTrait + MutexCreationTrait<Self>, T: TCPActorTrait> Handler<ReceivedPacket> for PacketDispatcher<D, T> {
+impl Handler<ReceivedPacket> for PacketDispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPacket, ctx: &mut Self::Context) {

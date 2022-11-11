@@ -10,6 +10,7 @@ actix = "0.13.0"
 actix-rt = "2.7.0"
 tokio = "1.21.2"
 mockall_double = "0.3.0"
+async-trait = "0.1.51"
 common = { path = "../common", features = ["message_handler"]}
 
 [dev-dependencies]

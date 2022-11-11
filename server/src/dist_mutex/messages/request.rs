@@ -5,7 +5,7 @@ use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct RequestMessage {
     from: ServerId,
@@ -56,9 +56,17 @@ impl<P: PacketDispatcherTrait> Handler<RequestMessage> for DistMutex<P> {
         send_ack(&self.dispatcher, msg.from, self.id);
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
+                println!("{} {:?} has priority over me, sending ok", self, msg.from);
                 send_ok(&self.dispatcher, msg.from, self.id);
+            } else {
+                println!("{} I have priority over {}", self, msg.from);
+                // TODO: add to queue
             }
         } else {
+            println!(
+                "{} I am not waiting for lock, sending ok to {:?}",
+                self, msg.from
+            );
             send_ok(&self.dispatcher, msg.from, self.id);
         }
     }

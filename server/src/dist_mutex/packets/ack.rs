@@ -7,9 +7,7 @@ pub struct AckPacket {
 
 impl AckPacket {
     pub fn new(id: ResourceId) -> Self {
-        Self {
-            id,
-        }
+        Self { id }
     }
 
     pub fn id(&self) -> ResourceId {
@@ -21,9 +19,9 @@ impl TryFrom<Vec<u8>> for AckPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 9 {
+        if value.len() != 5 {
             return Err(format!(
-                "Invalid packet length: expected 9, got {}",
+                "Invalid packet length: expected 5, got {}",
                 value.len()
             ));
         }
@@ -37,19 +35,18 @@ impl TryFrom<Vec<u8>> for AckPacket {
             ));
         }
 
-        let id = value[1..9].try_into().unwrap();
+        let id = value[1..5].try_into().unwrap();
 
-        Ok(Self {
-            id,
-        })
+        Ok(Self { id })
     }
 }
 
 impl From<AckPacket> for Vec<u8> {
-    fn from(_: AckPacket) -> Self {
+    fn from(packet: AckPacket) -> Self {
         let mut buffer = Vec::new();
         buffer.push(MutexPacketType::Ack.into());
-
+        let id: [u8; 4] = packet.id.into();
+        buffer.extend(id.iter());
         buffer
     }
 }
