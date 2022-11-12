@@ -27,6 +27,7 @@ impl<T: AsyncReadExt + Unpin> ReaderLoop<T> {
         while message.len() >= MAGIC_NUMBER.len() + LEN_BYTES {
             if !message.starts_with(&MAGIC_NUMBER) {
                 // Something went wrong: Magic number does not match
+                println!("{:?}", message);
                 return Err(SocketError::new("Magic number does not match"));
             }
 

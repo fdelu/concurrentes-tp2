@@ -36,7 +36,7 @@ pub(crate) struct AddStream {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::{io, net::SocketAddr};
 
     use mockall::mock;

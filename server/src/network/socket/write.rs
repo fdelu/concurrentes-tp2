@@ -4,7 +4,7 @@ use crate::network::error::SocketError;
 
 use super::{OnEnd, WriterSend};
 
-pub(crate) const MAGIC_NUMBER: [u8; 2] = [0x52, 0x56];
+pub(crate) const MAGIC_NUMBER: [u8; 2] = [0x52, 0x56]; // decimal [82, 86] "RV"
 pub(crate) const LEN_BYTES: usize = 2; // u16, no cambiar
 pub const MAX_MESSAGE_SIZE: usize = 1 << (8 * LEN_BYTES);
 

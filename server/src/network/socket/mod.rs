@@ -155,6 +155,7 @@ pub(crate) mod tests {
 
     pub struct MockSocket {
         pub sent: Arc<Mutex<Vec<SocketSend>>>,
+        fail: bool,
     }
     impl Actor for MockSocket {
         type Context = Context<Self>;
@@ -163,6 +164,9 @@ pub(crate) mod tests {
         type Result = Result<(), SocketError>;
 
         fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Result<(), SocketError> {
+            if self.fail {
+                return Err(SocketError::new("MockSocket failed"));
+            }
             self.sent.lock().unwrap().push(msg);
             Ok(())
         }
@@ -174,8 +178,17 @@ pub(crate) mod tests {
             _: SocketAddr,
             _: Option<TcpStream>,
         ) -> Self {
+            Self::get(Arc::new(Mutex::new(Vec::new())))
+        }
+
+        pub fn get(sent: Arc<Mutex<Vec<SocketSend>>>) -> Self {
+            MockSocket { sent, fail: false }
+        }
+
+        pub fn get_failing() -> Self {
             MockSocket {
                 sent: Arc::new(Mutex::new(Vec::new())),
+                fail: true,
             }
         }
     }

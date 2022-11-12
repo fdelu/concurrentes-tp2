@@ -70,7 +70,7 @@ impl<A: AHandler<SocketEnd>> Connection<A> {
 
 #[cfg(test)]
 pub mod test {
-    use crate::network::socket::{ReceivedPacket, SocketEnd};
+    use crate::network::socket::SocketEnd;
 
     use super::MockConnection as Connection;
     use common::AHandler;
@@ -91,26 +91,22 @@ pub mod test {
         }
     }
 
-    /// Guard de [init_connections]. Contiene el contexto del mock y el guard del mutex
+    /// Guard de [connection_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard<A: AHandler<SocketEnd>>(
-        __mock_MockConnection::__new::Context<A>,
-        MutexGuard<'static, ()>,
-    );
+    pub struct Guard<A: AHandler<SocketEnd>> {
+        pub ctx: __mock_MockConnection::__new::Context<A>,
+        guard: MutexGuard<'static, ()>,
+    }
 
-    /// Función de utilidad para mockear la [Connection]. Devuelve un Vec que tiene
-    /// todos los mensajes que se logueen y el [Guard].
-    pub fn init_connections<A: AHandler<SocketEnd> + Send, B: AHandler<ReceivedPacket> + Send>(
-        mut connections: Vec<Connection<A>>,
-    ) -> Guard<A> {
+    /// Función de utilidad para mockear la [Connection].
+    pub fn connection_new_context<A: AHandler<SocketEnd> + Send>() -> Guard<A> {
         let m = get_lock(&MTX);
 
         let context = Connection::new_context();
-        context
-            .expect::<B>()
-            .times(connections.len())
-            .returning(move |_, _, _, _| connections.remove(0));
 
-        Guard(context, m)
+        Guard {
+            ctx: context,
+            guard: m,
+        }
     }
 }
