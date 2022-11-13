@@ -5,7 +5,6 @@ use actix::Message;
 use actix_rt::net::TcpStream;
 #[cfg(test)]
 use tests::MockTcpStream as TcpStream;
-use tokio::net::ToSocketAddrs;
 
 use crate::network::error::SocketError;
 
@@ -22,9 +21,7 @@ pub struct SendPacket {
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "Result<(), SocketError>")]
-pub struct Listen<T: ToSocketAddrs> {
-    pub bind_to: T,
-}
+pub struct Listen {}
 
 // Private messages
 

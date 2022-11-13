@@ -5,7 +5,6 @@ use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
 use actix_rt::task::JoinHandle;
-use tokio::net::ToSocketAddrs;
 
 use mockall_double::double;
 
@@ -22,7 +21,7 @@ use self::listener::Listener;
 pub use self::messages::*;
 use self::{
     error::SocketError,
-    socket::{ReceivedPacket, SocketEnd, SocketSend},
+    socket::{ReceivedPacket, SocketEnd, SocketSend, Stream},
 };
 use common::AHandler;
 
@@ -30,22 +29,24 @@ pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
     connections: HashMap<SocketAddr, Connection<Self>>,
     received_handler: Addr<A>,
     join_listener: Option<JoinHandle<()>>,
+    bind_to: SocketAddr,
 }
 
 impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
-    fn new(received_handler: Addr<A>) -> Self {
+    fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,
             join_listener: None,
+            bind_to,
         }
     }
 
     fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
-        let connection = self
-            .connections
-            .entry(addr)
-            .or_insert_with(move || Connection::new(this.clone(), this, addr, None));
+        let bind_to = self.bind_to.ip().clone();
+        let connection = self.connections.entry(addr).or_insert_with(move || {
+            Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
+        });
         connection
     }
 }
@@ -76,19 +77,17 @@ impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>, T: ToSocketAddrs + 'static> Handler<Listen<T>>
-    for ConnectionHandler<A>
-{
+impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: Listen<T>, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _: Listen, _ctx: &mut Context<Self>) -> Self::Result {
         if self.join_listener.is_some() {
             return async { Err(SocketError::new("Already listening for new connection")) }
                 .into_actor(self)
                 .boxed_local();
         }
-
-        async move { Listener::bind(msg.bind_to).await }
+        let bind_to = self.bind_to;
+        async move { Listener::bind(bind_to).await }
             .into_actor(self)
             .map(|listener, this, ctx| {
                 this.join_listener = Some(listener?.run(ctx.address()));
@@ -116,7 +115,12 @@ impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
-        let connection = Connection::new(ctx.address(), ctx.address(), msg.addr, Some(msg.stream));
+        let connection = Connection::new(
+            ctx.address(),
+            ctx.address(),
+            msg.addr,
+            Stream::Existing(msg.stream),
+        );
         self.connections.insert(msg.addr, connection);
     }
 }
@@ -137,7 +141,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
-    use crate::network::socket::SocketEnd;
+    use crate::network::socket::{SocketEnd, Stream};
     use crate::network::{AddStream, Listen, SendPacket};
 
     use super::connection::test::connection_new_context;
@@ -162,6 +166,11 @@ mod tests {
     }
 
     type CH = ConnectionHandler<Receiver>;
+    macro_rules! local {
+        () => {
+            SocketAddr::from(([127, 0, 0, 1], 25000))
+        };
+    }
 
     #[test]
     fn test_send_packet() {
@@ -186,7 +195,7 @@ mod tests {
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_get_socket().times(1).return_const(socket);
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -197,7 +206,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_none()),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -232,7 +241,7 @@ mod tests {
 
         sys.block_on(async move {
             let r_addr = receiver.start();
-            let handler = ConnectionHandler::new(r_addr).start();
+            let handler = ConnectionHandler::new(r_addr, local!()).start();
 
             handler
                 .send(ReceivedPacket { addr, data: data_c })
@@ -270,7 +279,7 @@ mod tests {
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_get_socket().times(2).return_const(socket);
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -281,7 +290,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_none()),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -338,7 +347,7 @@ mod tests {
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_get_socket().times(1).return_const(socket); // Only one send
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -349,7 +358,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_none()),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -401,7 +410,7 @@ mod tests {
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_get_socket().times(1).return_const(socket);
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -412,7 +421,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_none()),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -441,7 +450,7 @@ mod tests {
             let receiver = receiver.start();
             let conn: Connection<CH> = Connection::default();
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -452,7 +461,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_some()),
+                    function(|s: &Stream| matches!(s, Stream::Existing(_))),
                 )
                 .times(1)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -499,7 +508,7 @@ mod tests {
             conn_1.expect_restart_timeout().times(1).return_const(());
             conn_1.expect_get_socket().times(1).return_const(socket_1);
             let guard = connection_new_context::<CH>();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn, conn_1];
 
@@ -510,7 +519,7 @@ mod tests {
                     eq(handler_c.clone()),
                     eq(handler_c),
                     eq(addr),
-                    function(|s: &Option<TcpStream>| s.is_none()),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(2)
                 .returning(move |_, _, _, _| conn_v.pop().unwrap());
@@ -558,7 +567,7 @@ mod tests {
         sys.block_on(async move {
             let receiver = receiver.start();
             let mut listener: Listener = Listener::default();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, addr).start();
             listener
                 .expect_run()
                 .times(1)
@@ -574,11 +583,7 @@ mod tests {
                 .times(1)
                 .returning(move |_| Ok(listener_v.pop().unwrap()));
 
-            handler
-                .send(Listen { bind_to: addr })
-                .await
-                .unwrap()
-                .unwrap();
+            handler.send(Listen {}).await.unwrap().unwrap();
         });
 
         assert_eq!(received.lock().unwrap().len(), 0);
@@ -596,7 +601,7 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let handler = ConnectionHandler::new(receiver).start();
+            let handler = ConnectionHandler::new(receiver, addr).start();
             let guard = listener_new_context();
 
             guard
@@ -606,11 +611,7 @@ mod tests {
                 .times(1)
                 .returning(move |_| Err(io::Error::new(io::ErrorKind::Other, "test")));
 
-            assert!(handler
-                .send(Listen { bind_to: addr })
-                .await
-                .unwrap()
-                .is_err());
+            assert!(handler.send(Listen {}).await.unwrap().is_err());
         });
 
         assert_eq!(received.lock().unwrap().len(), 0);

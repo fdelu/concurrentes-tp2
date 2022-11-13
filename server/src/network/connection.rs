@@ -1,10 +1,6 @@
 use std::net::SocketAddr;
 
-#[cfg(test)]
-use super::messages::tests::MockTcpStream as TcpStream;
 use actix::{Actor, Addr};
-#[cfg(not(test))]
-use actix_rt::net::TcpStream;
 use common::AHandler;
 use tokio::{
     task::{spawn, JoinHandle},
@@ -15,7 +11,7 @@ use tokio::{
 use super::socket::tests::MockSocket as Socket;
 #[cfg(not(test))]
 use super::socket::Socket;
-use super::socket::{ReceivedPacket, SocketEnd};
+use super::socket::{ReceivedPacket, SocketEnd, Stream};
 #[cfg(test)]
 use mockall::automock;
 
@@ -34,7 +30,7 @@ impl<A: AHandler<SocketEnd>> Connection<A> {
         end_handler: Addr<A>,
         received_handler: Addr<B>,
         addr: SocketAddr,
-        stream: Option<TcpStream>,
+        stream: Stream,
     ) -> Self {
         let socket = Socket::new(received_handler, end_handler.clone(), addr, stream);
         let mut this = Connection {
