@@ -1,13 +1,18 @@
 use core::convert::From;
 use core::fmt::Display;
 use std::net::SocketAddr;
-use crate::dist_mutex::{DistMutex, LOCALHOST, ResourceId, ServerId};
+
+use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::dist_mutex::messages::Timestamp;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
+const PORT: u16 = 8080;
+
 impl From<ServerId> for SocketAddr {
     fn from(server_id: ServerId) -> Self {
-        SocketAddr::new(LOCALHOST.parse().unwrap(), server_id.id)
+        let ip = format!("127.0.0.{}", server_id.id + 1);
+        let port = PORT;
+        SocketAddr::new(ip.parse().unwrap(), port)
     }
 }
 
@@ -26,7 +31,9 @@ impl From<ServerId> for [u8; 2] {
 
 impl From<SocketAddr> for ServerId {
     fn from(addr: SocketAddr) -> Self {
-        Self { id: addr.port() }
+        let id: u16 = addr.ip().to_string().split('.').last().unwrap().parse().unwrap();
+
+        Self { id: id - 1 }
     }
 }
 

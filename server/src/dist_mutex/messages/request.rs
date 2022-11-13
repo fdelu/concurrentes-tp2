@@ -1,9 +1,10 @@
 use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket};
+use crate::dist_mutex::packets::{AckPacket, OkPacket, RequestPacket};
 use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
-use crate::packet_dispatcher::messages::send_from_mutex::SendFromMutexMessage;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
+use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::packet::PacketType;
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -28,10 +29,11 @@ fn send_ack<P: PacketDispatcherTrait>(
 ) {
     let packet = AckPacket::new(resource_id);
     dispatcher
-        .try_send(SendFromMutexMessage::new(
-            MutexPacket::Ack(packet),
-            requester,
-        ))
+        .try_send(SendMessage {
+            to: requester,
+            data: packet.into(),
+            packet_type: PacketType::Mutex,
+        })
         .unwrap();
 }
 
@@ -42,10 +44,11 @@ fn send_ok<P: PacketDispatcherTrait>(
 ) {
     let packet = OkPacket::new(resource_id);
     dispatcher
-        .try_send(SendFromMutexMessage::new(
-            MutexPacket::Ok(packet),
-            requester,
-        ))
+        .try_send(SendMessage {
+            to: requester,
+            data: packet.into(),
+            packet_type: PacketType::Mutex,
+        })
         .unwrap();
 }
 

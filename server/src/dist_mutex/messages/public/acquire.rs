@@ -7,7 +7,11 @@ use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::{
     DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
 };
+use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use crate::network::error::SocketError;
+use crate::network::SendPacket;
+use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
+use crate::packet_dispatcher::packet::PacketType;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
 #[derive(Message)]
@@ -34,7 +38,13 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
         let timestamp = Timestamp::new();
 
         println!("{} Acquiring lock with timestamp {}", self, timestamp);
-        self.broadcast_lock_request(timestamp);
+        {
+            let packet = MutexPacket::Request(RequestPacket::new(self.id, timestamp));
+            self.dispatcher.try_send(BroadcastMessage {
+                data: packet.into(),
+                packet_type: PacketType::Mutex
+            }).unwrap();
+        }
         self.lock_timestamp = Some(timestamp);
 
         let (tx, rx) = oneshot::channel();
@@ -50,7 +60,7 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
                 println!("[Mutex {}] Timeout while waiting for acks", id);
                 Err(MutexError::Timeout)
             } else {
-                println!("[Mutex {}] All acks received", id);
+                println!("[Mutex {}] All oks received", id);
                 Ok(())
             }
         }
@@ -59,25 +69,23 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
         future
             .then(|r, me, ctx| {
                 match r {
-                    Ok(_) => {
+                    Ok(()) => {
                         // Lock acquired
-                        if me.are_all_ok_received() {
-                            //
-                            me.ok_future()
-                        } else {
-                            // The lock is being used by another server
-                            me.wait_lock()
-                        }
+                        me.ok_future()
                     }
                     Err(MutexError::Timeout) => {
-                        me.disconnect_servers_with_no_ack();
-                        if me.connected_servers.is_empty() {
-                            println!("{} I am disconnected", me);
-                            // TODO: Disconnect state
+                        if me.ack_received.is_empty() {
+                            // We are disconnected
+                            // TODO: Handle this
+                            println!("[Mutex {}] We are disconnected", me.id);
                             me.ok_future()
-                        } else if me.are_all_ok_received() {
+                        } else if me.ok_received == me.ack_received {
+                            // There are servers that are disconnected
+                            // but we have the lock
+                            me.send_prune();
                             me.ok_future()
                         } else {
+                            // There is a server that has the lock
                             me.wait_lock()
                         }
                     }

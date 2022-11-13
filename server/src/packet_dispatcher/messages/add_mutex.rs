@@ -1,6 +1,6 @@
-use crate::packet_dispatcher::messages::add_server::AddServerMessage;
-use crate::{DistMutex, MutexCreationTrait, PacketDispatcher, ResourceId};
 use actix::prelude::*;
+
+use crate::{DistMutex, MutexCreationTrait, PacketDispatcher, ResourceId};
 
 #[derive(Message)]
 #[rtype(result = "Addr<DistMutex<PacketDispatcher>>")]
@@ -20,10 +20,8 @@ impl Handler<AddMutexMessage> for PacketDispatcher {
     fn handle(&mut self, msg: AddMutexMessage, ctx: &mut Self::Context) -> Self::Result {
         println!("Adding mutex {}", msg.id);
         let id = msg.id;
-        let mut mutex = DistMutex::new(id, ctx.address());
-        self.connected_servers.iter().for_each(|server_id| {
-            mutex.add_connected_server(*server_id);
-        });
+        let mutex = DistMutex::new(self.server_id, id, ctx.address());
+
         let addr = mutex.start();
         self.mutexes.insert(id, addr.clone());
         addr

@@ -45,6 +45,12 @@ impl From<&[u8]> for Timestamp {
     }
 }
 
+impl From<Timestamp> for Vec<u8> {
+    fn from(timestamp: Timestamp) -> Self {
+        timestamp.time.to_be_bytes().to_vec()
+    }
+}
+
 impl PartialOrd for Timestamp {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
