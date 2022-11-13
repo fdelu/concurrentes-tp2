@@ -1,6 +1,9 @@
-use std::{io, net::SocketAddr};
+use std::io;
 
+#[cfg(test)]
+use self::test::MockTcpListener as TcpListener;
 use actix::Addr;
+#[cfg(not(test))]
 use actix_rt::net::TcpListener;
 use common::AHandler;
 use tokio::{
@@ -8,20 +11,20 @@ use tokio::{
     task::{spawn, JoinHandle},
 };
 
+#[cfg(test)]
+use mockall::automock;
+
 use super::{error::SocketError, AddStream};
 
 pub struct Listener {
     listener: TcpListener,
 }
 
+#[cfg_attr(test, automock)]
 impl Listener {
-    pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
+    pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         Ok(Self { listener })
-    }
-
-    pub fn get_addr(&self) -> io::Result<SocketAddr> {
-        self.listener.local_addr()
     }
 
     async fn add_connection<A: AHandler<AddStream>>(
@@ -41,5 +44,54 @@ impl Listener {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::{MockListener as Listener, __mock_MockListener};
+    use crate::network::messages::tests::MockTcpStream as TcpStream;
+    use mockall::{lazy_static, mock};
+    use std::sync::{Mutex, MutexGuard};
+    use std::{io, net::SocketAddr};
+    use tokio::net::ToSocketAddrs;
+
+    mock! {
+        pub TcpListener {
+            pub async fn accept(&mut self) -> io::Result<(TcpStream, SocketAddr)>;
+            pub fn local_addr(&self) -> io::Result<SocketAddr>;
+            pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self>;
+        }
+    }
+
+    // ver https://github.com/asomers/mockall/blob/master/mockall/examples/synchronization.rs
+    lazy_static! {
+        static ref MTX: Mutex<()> = Mutex::new(());
+    }
+
+    fn get_lock(m: &'static Mutex<()>) -> MutexGuard<'static, ()> {
+        match m.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Guard de [listener_new_context]. Contiene el contexto del mock y el guard del mutex
+    /// estático que impide que se inicialice el mock en varios tests a la vez.
+    pub struct Guard {
+        pub ctx: __mock_MockListener::__bind::Context,
+        guard: MutexGuard<'static, ()>,
+    }
+
+    /// Función de utilidad para mockear el [Listener].
+    pub fn listener_new_context() -> Guard {
+        let m = get_lock(&MTX);
+
+        let context = Listener::bind_context();
+
+        Guard {
+            ctx: context,
+            guard: m,
+        }
     }
 }

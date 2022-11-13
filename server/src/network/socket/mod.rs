@@ -1,43 +1,46 @@
+use std::io;
 use std::marker::Send;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
+#[cfg(test)]
+use super::messages::tests::MockTcpStream as TcpStream;
 use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
+#[cfg(not(test))]
+use actix_rt::net::TcpSocket;
+#[cfg(not(test))]
 use actix_rt::net::TcpStream;
 use common::AHandler;
+#[cfg(test)]
+use tests::MockTcpSocket as TcpSocket;
 use tokio::spawn;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
 
+use super::error::SocketError;
+
 mod messages;
 mod read;
 mod write;
 
-pub use messages::*;
-
 use self::read::ReaderLoop;
 use self::write::WriterLoop;
 
-use super::error::SocketError;
+pub use self::write::MAX_MESSAGE_SIZE;
+pub use messages::*;
 
 pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
-pub use self::write::MAX_MESSAGE_SIZE;
+pub enum Stream {
+    Existing(TcpStream),
+    NewBindedTo(IpAddr),
+}
 
 pub struct Socket {
     write_sender: UnboundedSender<WriterSend>,
     stop_tx: Option<oneshot::Sender<()>>,
-    addr: SocketAddr,
-}
-
-impl Actor for Socket {
-    type Context = Context<Self>;
-
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        self.stop_tx.take().and_then(|tx| tx.send(()).ok());
-    }
 }
 
 impl Socket {
@@ -45,7 +48,7 @@ impl Socket {
         received_handler: Addr<A>,
         end_handler: Addr<B>,
         socket_addr: SocketAddr,
-        stream: Option<TcpStream>,
+        stream: Stream,
     ) -> Socket {
         let (write_sender, write_receiver) = unbounded_channel();
         let end_h = end_handler.clone();
@@ -70,25 +73,29 @@ impl Socket {
         Socket {
             write_sender,
             stop_tx: Some(stop_tx),
-            addr: socket_addr,
         }
     }
 
-    pub fn get_addr(&self) -> SocketAddr {
-        self.addr
+    async fn new_tcp_stream(bind_to: IpAddr, addr: SocketAddr) -> io::Result<TcpStream> {
+        let socket = match bind_to {
+            IpAddr::V4(_) => TcpSocket::new_v4(),
+            IpAddr::V6(_) => TcpSocket::new_v6(),
+        }?;
+        socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
+        socket.connect(addr).await
     }
 
     async fn run<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
         received_handler: Addr<A>,
         end_handler: Addr<B>,
         stop_rx: oneshot::Receiver<()>,
-        stream: Option<TcpStream>,
+        stream: Stream,
         my_addr: SocketAddr,
         write_receiver: UnboundedReceiver<WriterSend>,
     ) -> Result<(), SocketError> {
         let stream = match stream {
-            Some(stream) => stream,
-            None => TcpStream::connect(my_addr).await?,
+            Stream::Existing(stream) => stream,
+            Stream::NewBindedTo(bind_to) => Self::new_tcp_stream(bind_to, my_addr).await?,
         };
         let (reader, writer) = stream.into_split();
 
@@ -126,6 +133,14 @@ impl Socket {
     }
 }
 
+impl Actor for Socket {
+    type Context = Context<Self>;
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        self.stop_tx.take().and_then(|tx| tx.send(()).ok());
+    }
+}
+
 impl Handler<SocketSend> for Socket {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
@@ -139,6 +154,71 @@ impl Handler<SocketSend> for Socket {
             Box::pin(async move { Err(e.into()) }.into_actor(self))
         } else {
             Box::pin(async move { result_rx.await? }.into_actor(self))
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::{
+        io,
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
+
+    use actix::{Actor, Addr, Context, Handler};
+    use mockall::mock;
+
+    use super::{ReceivedPacket, SocketEnd, SocketSend, Stream, TcpStream};
+    use crate::network::error::SocketError;
+    use common::AHandler;
+
+    mock! {
+        pub TcpSocket {
+            pub fn new_v4() -> io::Result<Self>;
+            pub fn new_v6() -> io::Result<Self>;
+            pub fn bind(&self, addr: SocketAddr) -> io::Result<()>;
+            pub async fn connect(self, addr: SocketAddr) -> io::Result<TcpStream>;
+        }
+    }
+
+    pub struct MockSocket {
+        pub sent: Arc<Mutex<Vec<SocketSend>>>,
+        fail: bool,
+    }
+    impl Actor for MockSocket {
+        type Context = Context<Self>;
+    }
+    impl Handler<SocketSend> for MockSocket {
+        type Result = Result<(), SocketError>;
+
+        fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Result<(), SocketError> {
+            if self.fail {
+                return Err(SocketError::new("MockSocket failed"));
+            }
+            self.sent.lock().unwrap().push(msg);
+            Ok(())
+        }
+    }
+    impl MockSocket {
+        pub fn new<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+            _: Addr<A>,
+            _: Addr<B>,
+            _: SocketAddr,
+            _: Stream,
+        ) -> Self {
+            Self::get(Arc::new(Mutex::new(Vec::new())))
+        }
+
+        pub fn get(sent: Arc<Mutex<Vec<SocketSend>>>) -> Self {
+            MockSocket { sent, fail: false }
+        }
+
+        pub fn get_failing() -> Self {
+            MockSocket {
+                sent: Arc::new(Mutex::new(Vec::new())),
+                fail: true,
+            }
         }
     }
 }

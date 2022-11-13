@@ -1,25 +1,27 @@
+#![cfg_attr(test, allow(dead_code))]
 use std::{collections::HashMap, net::SocketAddr};
 
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
-use actix_rt::{net::TcpStream, task::JoinHandle};
-use tokio::net::ToSocketAddrs;
+use actix_rt::task::JoinHandle;
+
+use mockall_double::double;
 
 mod connection;
-pub(crate) mod error;
+mod error;
 mod listener;
 mod messages;
 mod socket;
 
+#[double]
+use self::connection::Connection;
+#[double]
+use self::listener::Listener;
 pub use self::messages::*;
-pub(crate) use self::socket::ReceivedPacket;
-
 use self::{
-    connection::Connection,
     error::SocketError,
-    listener::Listener,
-    socket::{Socket, SocketEnd, SocketSend},
+    socket::{ReceivedPacket, SocketEnd, SocketSend, Stream},
 };
 use common::AHandler;
 
@@ -27,33 +29,24 @@ pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
     connections: HashMap<SocketAddr, Connection<Self>>,
     received_handler: Addr<A>,
     join_listener: Option<JoinHandle<()>>,
+    bind_to: SocketAddr,
 }
 
 impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
-    pub fn new(received_handler: Addr<A>) -> Self {
+    fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,
             join_listener: None,
+            bind_to,
         }
     }
 
-    fn create_connection(
-        this: Addr<Self>,
-        receiver: Addr<A>,
-        addr: SocketAddr,
-        stream: Option<TcpStream>,
-    ) -> Connection<Self> {
-        let socket = Socket::new(receiver, this.clone(), addr, stream);
-        Connection::new(this, socket)
-    }
-
     fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
-        let receiver = self.received_handler.clone();
-        let connection = self
-            .connections
-            .entry(addr)
-            .or_insert_with(move || Self::create_connection(this, receiver, addr, None));
+        let bind_to = self.bind_to.ip().clone();
+        let connection = self.connections.entry(addr).or_insert_with(move || {
+            Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
+        });
         connection
     }
 }
@@ -63,7 +56,7 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         if let Some(join) = self.join_listener.take() {
-            join.abort()
+            join.abort();
         }
     }
 }
@@ -84,19 +77,17 @@ impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>, T: ToSocketAddrs + 'static> Handler<Listen<T>>
-    for ConnectionHandler<A>
-{
+impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: Listen<T>, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _: Listen, _ctx: &mut Context<Self>) -> Self::Result {
         if self.join_listener.is_some() {
             return async { Err(SocketError::new("Already listening for new connection")) }
                 .into_actor(self)
                 .boxed_local();
         }
-
-        async move { Listener::bind(msg.bind_to).await }
+        let bind_to = self.bind_to;
+        async move { Listener::bind(bind_to).await }
             .into_actor(self)
             .map(|listener, this, ctx| {
                 this.join_listener = Some(listener?.run(ctx.address()));
@@ -106,17 +97,29 @@ impl<A: AHandler<ReceivedPacket>, T: ToSocketAddrs + 'static> Handler<Listen<T>>
     }
 }
 
+impl<A: AHandler<ReceivedPacket>> Handler<ReceivedPacket> for ConnectionHandler<A> {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Context<Self>) -> Self::Result {
+        if let Some(conn) = self.connections.get_mut(&msg.addr) {
+            conn.restart_timeout();
+        }
+
+        self.received_handler.do_send(msg);
+    }
+}
+
 // Private Messages
 
 impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
-        let connection = Self::create_connection(
+        let connection = Connection::new(
             ctx.address(),
-            self.received_handler.clone(),
+            ctx.address(),
             msg.addr,
-            Some(msg.stream),
+            Stream::Existing(msg.stream),
         );
         self.connections.insert(msg.addr, connection);
     }
@@ -127,5 +130,490 @@ impl<A: AHandler<ReceivedPacket>> Handler<SocketEnd> for ConnectionHandler<A> {
 
     fn handle(&mut self, msg: SocketEnd, _ctx: &mut Self::Context) {
         self.connections.remove(&msg.addr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use actix::{Actor, Context, Handler, System};
+    use mockall::predicate::{eq, function};
+    use std::io;
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+
+    use crate::network::socket::{SocketEnd, Stream};
+    use crate::network::{AddStream, Listen, SendPacket};
+
+    use super::connection::test::connection_new_context;
+    use super::listener::test::listener_new_context;
+    use super::messages::tests::MockTcpStream as TcpStream;
+    use super::socket::{tests::MockSocket as Socket, ReceivedPacket};
+    use super::Listener;
+    use super::{Connection, ConnectionHandler};
+
+    pub struct Receiver {
+        pub received: Arc<Mutex<Vec<ReceivedPacket>>>,
+    }
+    impl Actor for Receiver {
+        type Context = Context<Self>;
+    }
+    impl Handler<ReceivedPacket> for Receiver {
+        type Result = ();
+
+        fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Self::Context) {
+            self.received.lock().unwrap().push(msg);
+        }
+    }
+
+    type CH = ConnectionHandler<Receiver>;
+    macro_rules! local {
+        () => {
+            SocketAddr::from(([127, 0, 0, 1], 25000))
+        };
+    }
+
+    #[test]
+    fn test_send_packet() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let socket = Socket::get(sent.clone());
+
+        let data = vec![1, 2, 3, 4, 5];
+        let data_c = data.clone();
+
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1234));
+
+        sys.block_on(async move {
+            let socket = socket.start();
+            let receiver = receiver.start();
+            let mut conn: Connection<CH> = Connection::default();
+            conn.expect_restart_timeout().times(1).return_const(());
+            conn.expect_get_socket().times(1).return_const(socket);
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
+                )
+                .times(1)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+        });
+
+        assert_eq!(sent.lock().unwrap().len(), 1);
+        assert_eq!(sent.lock().unwrap()[0].data, data);
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_receive_packet() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let data: Vec<u8> = (0..100).collect();
+        let data_c = data.clone();
+
+        let addr = SocketAddr::from(([1, 1, 1, 1], 80));
+
+        sys.block_on(async move {
+            let r_addr = receiver.start();
+            let handler = ConnectionHandler::new(r_addr, local!()).start();
+
+            handler
+                .send(ReceivedPacket { addr, data: data_c })
+                .await
+                .unwrap();
+        });
+
+        assert_eq!(received.lock().unwrap().len(), 1);
+        assert_eq!(received.lock().unwrap()[0].data, data);
+        assert_eq!(received.lock().unwrap()[0].addr, addr);
+    }
+
+    #[test]
+    fn test_timeout_restarts_when_sending_twice() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let socket = Socket::get(sent.clone());
+
+        let data = vec![1, 2, 3, 4, 5];
+        let data_1: Vec<u8> = (3..211).collect();
+        let data_c = data.clone();
+        let data_1_c: Vec<u8> = data_1.clone();
+
+        let addr = SocketAddr::from(([170, 123, 200, 15], 5000));
+
+        sys.block_on(async move {
+            let socket = socket.start();
+            let receiver = receiver.start();
+            let mut conn: Connection<CH> = Connection::default();
+            conn.expect_restart_timeout().times(2).return_const(());
+            conn.expect_get_socket().times(2).return_const(socket);
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
+                )
+                .times(1)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            // First send should create Connection and restart timeout
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+
+            // Second send should get existing connection and restart timeout
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_1_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+        });
+
+        assert_eq!(sent.lock().unwrap().len(), 2);
+        assert_eq!(sent.lock().unwrap()[0].data, data);
+        assert_eq!(sent.lock().unwrap()[1].data, data_1);
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_timeout_restarts_when_receiving() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let socket = Socket::get(sent.clone());
+
+        let data = vec![10, 3, 2];
+        let data_1: Vec<u8> = (5..20).collect();
+        let data_c = data.clone();
+        let data_1_c: Vec<u8> = data_1.clone();
+
+        let addr = SocketAddr::from(([34, 54, 12, 65], 1883));
+
+        sys.block_on(async move {
+            let socket = socket.start();
+            let receiver = receiver.start();
+            let mut conn: Connection<CH> = Connection::default();
+            conn.expect_restart_timeout().times(2).return_const(());
+            conn.expect_get_socket().times(1).return_const(socket); // Only one send
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
+                )
+                .times(1)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            // First send should create Connection and restart timeout
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+
+            // Receiving from that connection should restart it again
+            handler
+                .send(ReceivedPacket {
+                    addr,
+                    data: data_1_c,
+                })
+                .await
+                .unwrap();
+        });
+
+        assert_eq!(sent.lock().unwrap().len(), 1);
+        assert_eq!(sent.lock().unwrap()[0].data, data);
+        assert_eq!(received.lock().unwrap().len(), 1);
+        assert_eq!(received.lock().unwrap()[0].data, data_1);
+    }
+
+    #[test]
+    fn test_socket_fail() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let socket = Socket::get_failing();
+
+        let data = vec![23, 43, 12, 5];
+
+        let addr = SocketAddr::from(([23, 43, 12, 5], 25565));
+
+        sys.block_on(async move {
+            let socket = socket.start();
+            let receiver = receiver.start();
+            let mut conn: Connection<CH> = Connection::default();
+            conn.expect_restart_timeout().times(1).return_const(());
+            conn.expect_get_socket().times(1).return_const(socket);
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
+                )
+                .times(1)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            assert!(handler
+                .send(SendPacket { to: addr, data })
+                .await
+                .unwrap()
+                .is_err());
+        });
+
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_add_stream() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let addr = SocketAddr::from(([1, 2, 6, 24], 120));
+
+        sys.block_on(async move {
+            let receiver = receiver.start();
+            let conn: Connection<CH> = Connection::default();
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::Existing(_))),
+                )
+                .times(1)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            handler
+                .send(AddStream {
+                    stream: TcpStream::default(),
+                    addr,
+                })
+                .await
+                .unwrap();
+        });
+
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_socket_end() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let socket = Socket::get(sent.clone());
+        let socket_1 = Socket::get(sent.clone());
+
+        let data = vec![1, 2, 3, 4, 5];
+        let data_1: Vec<u8> = (3..211).collect();
+        let data_c = data.clone();
+        let data_1_c: Vec<u8> = data_1.clone();
+
+        let addr = SocketAddr::from(([170, 123, 200, 15], 5000));
+
+        sys.block_on(async move {
+            let socket = socket.start();
+            let socket_1 = socket_1.start();
+            let receiver = receiver.start();
+            let mut conn: Connection<CH> = Connection::default();
+            conn.expect_restart_timeout().times(1).return_const(());
+            conn.expect_get_socket().times(1).return_const(socket);
+            let mut conn_1: Connection<CH> = Connection::default();
+            conn_1.expect_restart_timeout().times(1).return_const(());
+            conn_1.expect_get_socket().times(1).return_const(socket_1);
+            let guard = connection_new_context::<CH>();
+            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let handler_c = handler.clone();
+            let mut conn_v = vec![conn, conn_1];
+
+            guard
+                .ctx
+                .expect()
+                .with(
+                    eq(handler_c.clone()),
+                    eq(handler_c),
+                    eq(addr),
+                    function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
+                )
+                .times(2)
+                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+
+            // First send should create Connection and restart timeout
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+
+            // Connection should be deleted
+            handler.send(SocketEnd { addr }).await.unwrap();
+
+            // Second send should create connection again and restart timeout
+            handler
+                .send(SendPacket {
+                    to: addr,
+                    data: data_1_c,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+        });
+
+        assert_eq!(sent.lock().unwrap().len(), 2);
+        assert_eq!(sent.lock().unwrap()[0].data, data);
+        assert_eq!(sent.lock().unwrap()[1].data, data_1);
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_bind_listener() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1234));
+
+        sys.block_on(async move {
+            let receiver = receiver.start();
+            let mut listener: Listener = Listener::default();
+            let handler = ConnectionHandler::new(receiver, addr).start();
+            listener
+                .expect_run()
+                .times(1)
+                .with(eq(handler.clone()))
+                .returning(|_| actix_rt::spawn(async {}));
+            let guard = listener_new_context();
+            let mut listener_v = vec![listener];
+
+            guard
+                .ctx
+                .expect()
+                .with(eq(addr))
+                .times(1)
+                .returning(move |_| Ok(listener_v.pop().unwrap()));
+
+            handler.send(Listen {}).await.unwrap().unwrap();
+        });
+
+        assert_eq!(received.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_listener_failed() {
+        let sys = System::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let receiver = Receiver {
+            received: received.clone(),
+        };
+
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1234));
+
+        sys.block_on(async move {
+            let receiver = receiver.start();
+            let handler = ConnectionHandler::new(receiver, addr).start();
+            let guard = listener_new_context();
+
+            guard
+                .ctx
+                .expect()
+                .with(eq(addr))
+                .times(1)
+                .returning(move |_| Err(io::Error::new(io::ErrorKind::Other, "test")));
+
+            assert!(handler.send(Listen {}).await.unwrap().is_err());
+        });
+
+        assert_eq!(received.lock().unwrap().len(), 0);
     }
 }
