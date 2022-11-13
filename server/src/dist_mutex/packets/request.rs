@@ -1,6 +1,6 @@
 use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::packets::MutexPacketType;
-use crate::dist_mutex::{ResourceId, ServerId};
+use crate::dist_mutex::ResourceId;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RequestPacket {

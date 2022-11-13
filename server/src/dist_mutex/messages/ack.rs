@@ -2,7 +2,6 @@ use crate::dist_mutex::packets::AckPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
 use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
-use std::collections::HashSet;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -12,9 +11,7 @@ pub struct AckMessage {
 
 impl AckMessage {
     pub fn new(from: ServerId, _: AckPacket) -> Self {
-        Self {
-            from,
-        }
+        Self { from }
     }
 }
 

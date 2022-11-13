@@ -1,5 +1,5 @@
-use crate::dist_mutex::packets::MutexPacketType;
-use crate::dist_mutex::{ResourceId, ServerId};
+use crate::dist_mutex::packets::{decode_mutex_packet_with_only_id, MutexPacketType};
+use crate::dist_mutex::ResourceId;
 
 pub struct AckPacket {
     id: ResourceId,
@@ -19,25 +19,9 @@ impl TryFrom<Vec<u8>> for AckPacket {
     type Error = String;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 5 {
-            return Err(format!(
-                "Invalid packet length: expected 5, got {}",
-                value.len()
-            ));
-        }
-
-        let packet_type = MutexPacketType::try_from(value[0])?;
-        if packet_type != MutexPacketType::Ack {
-            return Err(format!(
-                "Invalid packet type: expected {:?}, got {:?}",
-                MutexPacketType::Ack,
-                packet_type
-            ));
-        }
-
-        let id = value[1..5].try_into().unwrap();
-
-        Ok(Self { id })
+        Ok(Self {
+            id: decode_mutex_packet_with_only_id(value, MutexPacketType::Ack)?,
+        })
     }
 }
 

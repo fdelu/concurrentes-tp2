@@ -18,7 +18,6 @@ impl Handler<AddMutexMessage> for PacketDispatcher {
     type Result = Addr<DistMutex<PacketDispatcher>>;
 
     fn handle(&mut self, msg: AddMutexMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!("Adding mutex {}", msg.id);
         let id = msg.id;
         let mutex = DistMutex::new(self.server_id, id, ctx.address());
 

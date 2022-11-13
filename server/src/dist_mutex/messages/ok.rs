@@ -1,8 +1,8 @@
-use std::collections::HashSet;
 use crate::dist_mutex::packets::OkPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
 use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
+use std::collections::HashSet;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -24,12 +24,12 @@ impl<P: PacketDispatcherTrait> Handler<OkMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
+        println!("{} Received ok from {}", self, msg.from);
+
         self.ok_received.insert(msg.from);
 
         if self.ok_received.is_superset(&msg.connected_servers) {
-            println!(
-                "{} All ok received", self
-            );
+            println!("{} All ok received", self);
             self.all_oks_received_channel
                 .take()
                 .unwrap()

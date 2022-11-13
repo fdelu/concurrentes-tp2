@@ -2,8 +2,8 @@ use core::convert::From;
 use core::fmt::Display;
 use std::net::SocketAddr;
 
-use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
 const PORT: u16 = 8080;
@@ -31,7 +31,14 @@ impl From<ServerId> for [u8; 2] {
 
 impl From<SocketAddr> for ServerId {
     fn from(addr: SocketAddr) -> Self {
-        let id: u16 = addr.ip().to_string().split('.').last().unwrap().parse().unwrap();
+        let id: u16 = addr
+            .ip()
+            .to_string()
+            .split('.')
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap();
 
         Self { id: id - 1 }
     }

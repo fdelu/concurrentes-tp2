@@ -4,12 +4,11 @@ use tokio::sync::oneshot;
 use tokio::time;
 
 use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
+use crate::dist_mutex::MutexError::Mailbox;
 use crate::dist_mutex::{
     DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
 };
-use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
-use crate::network::error::SocketError;
-use crate::network::SendPacket;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::packet::PacketType;
 use crate::packet_dispatcher::PacketDispatcherTrait;
@@ -37,27 +36,31 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
         self.clean_state();
         let timestamp = Timestamp::new();
 
-        println!("{} Acquiring lock with timestamp {}", self, timestamp);
         {
             let packet = MutexPacket::Request(RequestPacket::new(self.id, timestamp));
-            self.dispatcher.try_send(BroadcastMessage {
-                data: packet.into(),
-                packet_type: PacketType::Mutex
-            }).unwrap();
+            self.dispatcher
+                .try_send(BroadcastMessage {
+                    data: packet.into(),
+                    packet_type: PacketType::Mutex,
+                })
+                .unwrap();
         }
         self.lock_timestamp = Some(timestamp);
+
+        self.queue.push((timestamp, self.server_id));
+        self.queue.sort_by_key(|(timestamp, _)| *timestamp);
 
         let (tx, rx) = oneshot::channel();
         self.all_oks_received_channel = Some(tx);
         let id = self.id;
 
         let future = async move {
-            println!("[Mutex {}] Waiting for all ok's and ack's", id);
+            println!("[Mutex {}] Waiting for all oks", id);
             if time::timeout(TIME_UNTIL_DISCONNECT_POLITIC, rx)
                 .await
                 .is_err()
             {
-                println!("[Mutex {}] Timeout while waiting for acks", id);
+                println!("[Mutex {}] Timeout while waiting for oks", id);
                 Err(MutexError::Timeout)
             } else {
                 println!("[Mutex {}] All oks received", id);
@@ -67,10 +70,11 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
         .into_actor(self);
 
         future
-            .then(|r, me, ctx| {
+            .then(|r, me, _| {
                 match r {
                     Ok(()) => {
                         // Lock acquired
+                        println!("[Mutex {}] I have the lock", me.id);
                         me.ok_future()
                     }
                     Err(MutexError::Timeout) => {
@@ -82,12 +86,17 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
                         } else if me.ok_received == me.ack_received {
                             // There are servers that are disconnected
                             // but we have the lock
+                            println!("[Mutex {}] I have the lock", me.id);
                             me.send_prune();
                             me.ok_future()
                         } else {
                             // There is a server that has the lock
+                            println!("[Mutex {}] There is a server that has the lock", me.id);
                             me.wait_lock()
                         }
+                    }
+                    Err(Mailbox(_)) => {
+                        panic!("Mailbox error");
                     }
                 }
             })

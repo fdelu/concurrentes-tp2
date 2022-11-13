@@ -1,20 +1,19 @@
-use crate::network::error::SocketError;
 use crate::network::Listen;
+use crate::network::SocketError;
 use crate::PacketDispatcher;
 use actix::prelude::*;
-use std::borrow::Borrow;
-use tokio::net::ToSocketAddrs;
 
-impl<T: ToSocketAddrs + Send + 'static> Handler<Listen<T>> for PacketDispatcher {
+impl Handler<Listen> for PacketDispatcher {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: Listen<T>, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Listen, _ctx: &mut Self::Context) -> Self::Result {
         let socket_actor_addr = self.socket.clone();
 
         async move {
-            // FIXME: bubble up error
-            socket_actor_addr.send(msg).await;
-            Ok(())
+            match socket_actor_addr.send(msg).await {
+                Ok(_) => Ok(()),
+                Err(e) => Err(SocketError::from(e)),
+            }
         }
         .into_actor(self)
         .boxed_local()

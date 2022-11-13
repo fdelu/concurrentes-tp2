@@ -4,13 +4,12 @@ use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
 use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::{RequestPacket};
+use crate::packet_dispatcher::messages::prune::PruneMessage;
 use actix::prelude::*;
 use common::AHandler;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use crate::packet_dispatcher::messages::prune::PruneMessage;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -56,8 +55,16 @@ impl ServerId {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum MutexError {
     Timeout,
+    Mailbox(String),
+}
+
+impl From<MailboxError> for MutexError {
+    fn from(e: MailboxError) -> Self {
+        MutexError::Mailbox(e.to_string())
+    }
 }
 
 type MutexResult<T> = Result<T, MutexError>;

@@ -1,10 +1,10 @@
 use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::packets::{AckPacket, OkPacket, RequestPacket};
 use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
-use crate::packet_dispatcher::PacketDispatcherTrait;
-use actix::prelude::*;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::PacketType;
+use crate::packet_dispatcher::PacketDispatcherTrait;
+use actix::prelude::*;
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -57,17 +57,19 @@ impl<P: PacketDispatcherTrait> Handler<RequestMessage> for DistMutex<P> {
 
     fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {
         send_ack(&self.dispatcher, msg.from, self.id);
+
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
                 println!("{} {:?} has priority over me, sending ok", self, msg.from);
                 send_ok(&self.dispatcher, msg.from, self.id);
             } else {
                 println!("{} I have priority over {}", self, msg.from);
-                // TODO: add to queue
+                self.queue.push((msg.timestamp, msg.from));
+                self.queue.sort_by_key(|(timestamp, _)| *timestamp);
             }
         } else {
             println!(
-                "{} I am not waiting for lock, sending ok to {:?}",
+                "{} I am not waiting for lock, sending ok to {}",
                 self, msg.from
             );
             send_ok(&self.dispatcher, msg.from, self.id);

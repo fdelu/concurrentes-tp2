@@ -1,3 +1,4 @@
+use crate::dist_mutex::messages::Timestamp;
 use actix::prelude::*;
 
 use crate::dist_mutex::packets::MutexPacket;
@@ -10,7 +11,9 @@ impl Handler<ReceivedPacket> for PacketDispatcher {
 
     fn handle(&mut self, msg: ReceivedPacket, ctx: &mut Self::Context) {
         let mut data = msg.data;
-        println!("From: {} First byte {} whole: {:?}", msg.addr, data[0], data);
+
+        self.servers_last_seen
+            .insert(msg.addr.into(), Some(Timestamp::new()));
 
         let packet_type: PacketType = data.remove(0).try_into().unwrap();
 
