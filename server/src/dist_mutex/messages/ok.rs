@@ -20,7 +20,7 @@ impl OkMessage {
     }
 }
 
-impl<P: PacketDispatcherTrait> Handler<OkMessage> for DistMutex<P> {
+impl<P: Actor> Handler<OkMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {

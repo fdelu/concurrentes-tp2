@@ -3,6 +3,8 @@ use actix::prelude::*;
 use tokio::sync::oneshot;
 use tokio::time;
 
+use common::AHandler;
+
 use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use crate::dist_mutex::MutexError::Mailbox;
@@ -10,8 +12,8 @@ use crate::dist_mutex::{
     DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
 };
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
+use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::packet::PacketType;
-use crate::packet_dispatcher::PacketDispatcherTrait;
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
@@ -29,7 +31,9 @@ impl Default for AcquireMessage {
     }
 }
 
-impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
+impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMessage>
+    for DistMutex<P>
+{
     type Result = ResponseActFuture<Self, MutexResult<()>>;
 
     fn handle(&mut self, _: AcquireMessage, _: &mut Self::Context) -> Self::Result {
@@ -77,12 +81,12 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
                         println!("[Mutex {}] I have the lock", me.id);
                         me.ok_future()
                     }
-                    Err(MutexError::Timeout) => {
+                    Err(MutexError::Timeout | MutexError::Disconnected) => {
                         if me.ack_received.is_empty() {
                             // We are disconnected
                             // TODO: Handle this
                             println!("[Mutex {}] We are disconnected", me.id);
-                            me.ok_future()
+                            me.err_disconnected_future()
                         } else if me.ok_received == me.ack_received {
                             // There are servers that are disconnected
                             // but we have the lock
@@ -104,9 +108,17 @@ impl<P: PacketDispatcherTrait> Handler<AcquireMessage> for DistMutex<P> {
     }
 }
 
-impl<P: PacketDispatcherTrait> DistMutex<P> {
+impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
     fn ok_future(&mut self) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
         async { Ok(()) }.into_actor(self).boxed_local()
+    }
+
+    fn err_disconnected_future(
+        &mut self,
+    ) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
+        async { Err(MutexError::Disconnected) }
+            .into_actor(self)
+            .boxed_local()
     }
 
     fn wait_lock(&mut self) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
@@ -127,5 +139,188 @@ impl<P: PacketDispatcherTrait> DistMutex<P> {
         }
         .into_actor(self)
         .boxed_local()
+    }
+}
+
+#[cfg(test)]
+#[allow(unused_must_use, clippy::type_complexity)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    use actix::prelude::*;
+
+    use crate::dist_mutex::messages::ack::AckMessage;
+    use crate::dist_mutex::messages::ok::OkMessage;
+    use crate::dist_mutex::packets::{AckPacket, OkPacket};
+    use crate::dist_mutex::MutexError;
+    use crate::network::SocketError;
+    use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
+    use crate::packet_dispatcher::messages::prune::PruneMessage;
+    use crate::packet_dispatcher::packet::PacketType;
+    use crate::{AcquireMessage, DistMutex, MutexCreationTrait, ResourceId, ServerId};
+
+    struct TestDispatcher {
+        pub broadcasts: Arc<Mutex<Vec<BroadcastMessage>>>,
+        pub prunes: Arc<Mutex<Vec<PruneMessage>>>,
+    }
+
+    impl Actor for TestDispatcher {
+        type Context = Context<Self>;
+    }
+
+    impl Handler<BroadcastMessage> for TestDispatcher {
+        type Result = ResponseActFuture<Self, Result<(), SocketError>>;
+
+        fn handle(&mut self, msg: BroadcastMessage, _: &mut Self::Context) -> Self::Result {
+            self.broadcasts.lock().unwrap().push(msg);
+            async { Ok(()) }.into_actor(self).boxed_local()
+        }
+    }
+
+    impl Handler<PruneMessage> for TestDispatcher {
+        type Result = ();
+
+        fn handle(&mut self, msg: PruneMessage, _: &mut Self::Context) -> Self::Result {
+            self.prunes.lock().unwrap().push(msg);
+        }
+    }
+
+    fn create_mutex() -> (
+        Addr<DistMutex<TestDispatcher>>,
+        Arc<Mutex<Vec<BroadcastMessage>>>,
+        Arc<Mutex<Vec<PruneMessage>>>,
+    ) {
+        let broadcasts = Arc::new(Mutex::new(Vec::new()));
+        let prunes = Arc::new(Mutex::new(Vec::new()));
+        let dispatcher = TestDispatcher {
+            broadcasts: broadcasts.clone(),
+            prunes: prunes.clone(),
+        };
+        let dispatcher_addr = dispatcher.start();
+        let resource_id = ResourceId::new(1);
+        let server_id = ServerId::new(1);
+        let mutex = DistMutex::new(server_id, resource_id, dispatcher_addr);
+        let mutex_addr = mutex.start();
+        (mutex_addr, broadcasts, prunes)
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_sends_broadcast_to_dispatcher() {
+        let (mutex, dispatcher, _) = create_mutex();
+        mutex.send(AcquireMessage::new()).await;
+
+        let broadcasts = dispatcher.lock().unwrap();
+        assert_eq!(broadcasts.len(), 1);
+        assert_eq!(broadcasts[0].packet_type, PacketType::Mutex);
+
+        System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_without_any_ack_received_returns_disconnected() {
+        let (mutex, _, _) = create_mutex();
+        let result = mutex.send(AcquireMessage::new()).await.unwrap();
+
+        assert_eq!(result.unwrap_err(), MutexError::Disconnected);
+        System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_with_all_acks_received_returns_ok() {
+        let (mutex, _, _) = create_mutex();
+        let another_server_id = ServerId::new(3);
+
+        let resource_id = ResourceId::new(1);
+        let packet = AckPacket::new(resource_id);
+
+        let ack = AckMessage::new(another_server_id, packet);
+        let ok_packet = OkPacket::new(resource_id);
+        let connected_servers = HashSet::from([another_server_id]);
+        let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
+
+        let result = mutex.send(AcquireMessage::new());
+        mutex.do_send(ack);
+        mutex.do_send(ok);
+
+        assert_eq!(result.await.unwrap(), Ok(()));
+        System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_with_ack_but_no_ok_returns_timeout() {
+        let (mutex, _, _) = create_mutex();
+        let another_server_id = ServerId::new(2);
+        let resource_id = ResourceId::new(1);
+        let packet = AckPacket::new(resource_id);
+        let ack = AckMessage::new(another_server_id, packet);
+
+        let result = mutex.send(AcquireMessage::new());
+        mutex.do_send(ack);
+
+        assert_eq!(result.await.unwrap().unwrap_err(), MutexError::Timeout);
+        System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_with_oks_received_from_all_servers_that_sent_ack_means_i_have_the_lock() {
+        let (mutex, _, _) = create_mutex();
+        let server_id_1 = ServerId::new(1);
+        let server_id_2 = ServerId::new(2);
+        let connected_servers = HashSet::from([server_id_1, server_id_2]);
+
+        let resource_id = ResourceId::new(1);
+
+        let ack = AckMessage::new(server_id_1, AckPacket::new(resource_id));
+        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket::new(resource_id));
+
+        let result = mutex.send(AcquireMessage::new());
+        mutex.do_send(ack);
+        mutex.do_send(ok);
+
+        assert_eq!(result.await.unwrap(), Ok(()));
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_with_timeout_but_lock_acquired_sends_prune_to_dispatcher() {
+        let (mutex, _, prunes) = create_mutex();
+        let server_id_1 = ServerId::new(1);
+        let server_id_2 = ServerId::new(2);
+        let connected_servers = HashSet::from([server_id_1, server_id_2]);
+
+        let resource_id = ResourceId::new(1);
+
+        let ack = AckMessage::new(server_id_1, AckPacket::new(resource_id));
+        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket::new(resource_id));
+
+        let result = mutex.send(AcquireMessage::new());
+        mutex.do_send(ack);
+        mutex.do_send(ok);
+
+        result.await.unwrap();
+
+        let prunes = prunes.lock().unwrap();
+        assert_eq!(prunes.len(), 1);
+        System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_acquire_without_timeout_does_not_send_prune_to_dispatcher() {
+        let (mutex, _, _) = create_mutex();
+        let another_server_id = ServerId::new(3);
+
+        let resource_id = ResourceId::new(1);
+        let packet = AckPacket::new(resource_id);
+        let ack = AckMessage::new(another_server_id, packet);
+        let ok_packet = OkPacket::new(resource_id);
+        let connected_servers = HashSet::from([another_server_id]);
+        let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
+
+        let result = mutex.send(AcquireMessage::new());
+        mutex.do_send(ack);
+        mutex.do_send(ok);
+
+        assert_eq!(result.await.unwrap(), Ok(()));
+        System::current().stop();
     }
 }

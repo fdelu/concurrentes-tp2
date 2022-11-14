@@ -15,7 +15,7 @@ impl AckMessage {
     }
 }
 
-impl<P: PacketDispatcherTrait> Handler<AckMessage> for DistMutex<P> {
+impl<P: Actor> Handler<AckMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: AckMessage, _ctx: &mut Self::Context) {

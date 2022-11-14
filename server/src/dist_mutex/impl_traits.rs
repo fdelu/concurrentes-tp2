@@ -1,3 +1,4 @@
+use actix::Actor;
 use core::convert::From;
 use core::fmt::Display;
 use std::net::SocketAddr;
@@ -69,7 +70,7 @@ impl Display for ResourceId {
     }
 }
 
-impl<P: PacketDispatcherTrait> Display for DistMutex<P> {
+impl<P: Actor> Display for DistMutex<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[Mutex {}]", self.id)
     }

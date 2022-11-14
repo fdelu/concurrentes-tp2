@@ -6,6 +6,8 @@ use crate::packet_dispatcher::packet::PacketType;
 use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
+use common::AHandler;
+
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct RequestMessage {
@@ -22,7 +24,7 @@ impl RequestMessage {
     }
 }
 
-fn send_ack<P: PacketDispatcherTrait>(
+fn send_ack<P: AHandler<SendMessage>>(
     dispatcher: &Addr<P>,
     requester: ServerId,
     resource_id: ResourceId,
@@ -37,7 +39,7 @@ fn send_ack<P: PacketDispatcherTrait>(
         .unwrap();
 }
 
-fn send_ok<P: PacketDispatcherTrait>(
+fn send_ok<P: AHandler<SendMessage>>(
     dispatcher: &Addr<P>,
     requester: ServerId,
     resource_id: ResourceId,
@@ -52,7 +54,7 @@ fn send_ok<P: PacketDispatcherTrait>(
         .unwrap();
 }
 
-impl<P: PacketDispatcherTrait> Handler<RequestMessage> for DistMutex<P> {
+impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {

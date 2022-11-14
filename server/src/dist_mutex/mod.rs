@@ -17,10 +17,17 @@ pub mod impl_traits;
 pub mod messages;
 pub mod packets;
 
+#[cfg(not(test))]
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
-const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_millis(10);
 
-pub struct DistMutex<P: PacketDispatcherTrait> {
+#[cfg(not(test))]
+const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const TIME_UNTIL_ERROR: Duration = Duration::from_millis(10);
+
+pub struct DistMutex<P: Actor> {
     server_id: ServerId,
     id: ResourceId,
     dispatcher: Addr<P>,
@@ -58,6 +65,7 @@ impl ServerId {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum MutexError {
     Timeout,
+    Disconnected,
     Mailbox(String),
 }
 
@@ -78,13 +86,13 @@ pub trait DistMutexTrait:
 {
 }
 
-pub trait MutexCreationTrait<P: PacketDispatcherTrait> {
+pub trait MutexCreationTrait<P: Actor> {
     fn new(server_id: ServerId, id: ResourceId, dispatcher: Addr<P>) -> Self;
 }
 
 impl<P: PacketDispatcherTrait> DistMutexTrait for DistMutex<P> {}
 
-impl<P: PacketDispatcherTrait> MutexCreationTrait<P> for DistMutex<P> {
+impl<P: Actor> MutexCreationTrait<P> for DistMutex<P> {
     fn new(server_id: ServerId, id: ResourceId, dispatcher: Addr<P>) -> Self {
         Self {
             server_id,
@@ -99,11 +107,11 @@ impl<P: PacketDispatcherTrait> MutexCreationTrait<P> for DistMutex<P> {
     }
 }
 
-impl<P: PacketDispatcherTrait> Actor for DistMutex<P> {
+impl<P: Actor> Actor for DistMutex<P> {
     type Context = Context<Self>;
 }
 
-impl<P: PacketDispatcherTrait> DistMutex<P> {
+impl<P: AHandler<PruneMessage>> DistMutex<P> {
     fn clean_state(&mut self) {
         self.ack_received.clear();
         self.ok_received.clear();
