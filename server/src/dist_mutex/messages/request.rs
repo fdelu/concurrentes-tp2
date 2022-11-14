@@ -3,7 +3,6 @@ use crate::dist_mutex::packets::{AckPacket, OkPacket, RequestPacket};
 use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::PacketType;
-use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
 use common::AHandler;

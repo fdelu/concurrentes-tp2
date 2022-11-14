@@ -1,6 +1,5 @@
 use crate::dist_mutex::packets::AckPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
-use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 
 #[derive(Message)]

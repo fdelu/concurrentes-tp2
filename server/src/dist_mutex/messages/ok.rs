@@ -1,6 +1,5 @@
 use crate::dist_mutex::packets::OkPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
-use crate::packet_dispatcher::PacketDispatcherTrait;
 use actix::prelude::*;
 use std::collections::HashSet;
 

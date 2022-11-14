@@ -8,7 +8,7 @@ const COMMIT_TYPE: u8 = 1;
 const SYNC_REQUEST_TYPE: u8 = 2;
 const SYNC_RESPONSE_TYPE: u8 = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PacketType {
     Mutex,
     Commit,

@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 
 use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
-use crate::packet_dispatcher::PacketDispatcherTrait;
 
 const PORT: u16 = 8080;
 
