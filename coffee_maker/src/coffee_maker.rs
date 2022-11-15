@@ -1,12 +1,12 @@
 use crate::order_processor::processor::OrderProcessor;
 use std::{thread, time};
 extern crate actix;
+use crate::order_processor::processor_messages::{AbortOrder, AddMoney, CommitOrder, PrepareOrder};
 use actix::{Actor, Addr};
-use crate::order_processor::processor_messages::{PrepareOrder, AbortOrder, CommitOrder, AddMoney};
+use rand::Rng;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use rand::Rng;
 use std::str::FromStr;
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -23,7 +23,7 @@ fn prepare_coffee() -> bool {
     thread::sleep(time::Duration::from_millis(rng.gen_range(0..100)));
     if rng.gen_range(0..100) < 15 {
         //TODO: log failed coffee
-        return false
+        return false;
     }
     thread::sleep(time::Duration::from_millis(rng.gen_range(0..100)));
     //TODO: log successfull coffee
@@ -58,7 +58,7 @@ async fn sale_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
         cost: FromStr::from_str(order_data[1]).expect("field was not u8"),
     };
 
-    println!("order: {}, {}", order.user_id, order.cost);//debug only
+    println!("order: {}, {}", order.user_id, order.cost); //debug only
 
     let response = order_actor.send(order).await;
     let message = match response {
@@ -71,9 +71,9 @@ async fn sale_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
         Err(error) => panic!("message problem {:?}", error), //TODO log message error and return
     };
 
-    if result != String::from("ready") {
+    if result != *"ready" {
         //TODO log error message with the result string
-        return
+        return;
     }
 
     if prepare_coffee() {
@@ -90,7 +90,7 @@ async fn recharge_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>)
         amount: FromStr::from_str(order_data[1]).expect("field was not u8"),
     };
 
-    println!("order: {}, {}", order.user_id, order.amount);//debug only
+    println!("order: {}, {}", order.user_id, order.amount); //debug only
     let response = order_actor.send(order).await;
     let message = match response {
         Ok(message) => message,
@@ -102,7 +102,7 @@ async fn recharge_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>)
         Err(error) => panic!("message problem {:?}", error), //TODO log message error and return
     };
 
-    if result != String::from("Ok") {
+    if result != *"Ok" {
         //TODO log error message with the result string
         return
     }
@@ -114,9 +114,9 @@ async fn process_order(order: String, order_actor: &Addr<OrderProcessor>) {
     let order_data: Vec<&str> = order.split(',').collect();
 
     if order_data[0] == "sale" {
-        sale_order(&order_data[1..], &order_actor).await;
+        sale_order(&order_data[1..], order_actor).await;
     } else if order_data[0] == "recharge" {
-        recharge_order(&order_data[1..], &order_actor).await;
+        recharge_order(&order_data[1..], order_actor).await;
     } else {
         //TODO log error in order
     }
@@ -137,17 +137,15 @@ pub async fn start_coffee_maker(path: &str, addr: &str) {
     //TODO log finished orders
 }
 
-
-
 #[cfg(test)]
 mod test {
-    use std::net::TcpListener;
-    use std::{thread, time};
-    use std::io::prelude::*;
-    use std::net::TcpStream;
     use crate::start_coffee_maker;
+    use std::io::prelude::*;
+    use std::net::TcpListener;
+    use std::net::TcpStream;
+    use std::{thread, time};
     // use futures::join;
-    
+
     fn assert_order_ready(stream: &mut TcpStream, id: u8, cost: u8) {
         let mut buf = [0_u8; 3];
         println!("reading");
@@ -169,7 +167,7 @@ mod test {
             let listener = TcpListener::bind("127.0.0.1:34235").unwrap();
             println!("listener ready");
             let (mut stream, _) = listener.accept().unwrap();
-    
+
             assert_order_ready(&mut stream, 3 as u8, 5 as u8);
         });
 
@@ -207,7 +205,7 @@ mod test {
             println!("reading");
             let _ = stream.read(&mut buf).unwrap();
             assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
-    
+
             let response = [b'o'];
             let _ = stream.write(&response).unwrap();
         });
@@ -227,12 +225,11 @@ mod test {
 
             assert_order_ready(&mut stream, 3 as u8, 5 as u8);
 
-
             let mut buf = [0_u8; 3];
             println!("reading");
             let _ = stream.read(&mut buf).unwrap();
             assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
-    
+
             let response = [b'o'];
             let _ = stream.write(&response).unwrap();
 
@@ -244,10 +241,9 @@ mod test {
             println!("reading");
             let _ = stream.read(&mut buf).unwrap();
             assert_eq!(buf, ['m' as u8, 12 as u8, 20 as u8]);
-    
+
             let response = [b'o'];
             let _ = stream.write(&response).unwrap();
-
         });
 
         thread::sleep(time::Duration::from_millis(100));
@@ -275,7 +271,7 @@ mod test {
     }
 
     #[tokio::main]
-    async fn split_processing(mut stream: &mut TcpStream,mut stream2: &mut TcpStream) {
+    async fn split_processing(mut stream: &mut TcpStream, mut stream2: &mut TcpStream) {
         let fut1 = assert_order_ready_async(&mut stream, 3 as u8, 5 as u8, 1);
         let fut2 = assert_order_ready_async(&mut stream2, 3 as u8, 5 as u8, 2);
         tokio::join!(fut1, fut2);

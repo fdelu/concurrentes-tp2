@@ -1,5 +1,5 @@
-mod order_processor;
 mod coffee_maker;
+mod order_processor;
 use coffee_maker::start_coffee_maker;
 
 fn main() {
