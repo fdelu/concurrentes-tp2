@@ -12,6 +12,7 @@ use crate::packet_dispatcher::{PacketDispatcher, SERVERS};
 pub mod dist_mutex;
 mod network;
 pub mod packet_dispatcher;
+pub mod two_phase_commit;
 
 #[actix_rt::main]
 async fn main() {
