@@ -5,6 +5,7 @@ use std::io::prelude::*;
 use std::net::TcpStream;
 use std::time;
 
+///Actor para procesar ordenes de cafe
 pub(crate) struct OrderProcessor {
     server_socket: TcpStream,
 }
@@ -14,6 +15,7 @@ impl Actor for OrderProcessor {
 }
 
 impl OrderProcessor {
+    ///constructor de OrderProcessor, recive la direccion del servidor y los milisegundos de timeout
     pub(crate) fn new(server_addr: &str, read_timeout: u64) -> Result<Self, std::io::Error> {
         let socket = TcpStream::connect(server_addr)?;
         socket.set_read_timeout(Some(time::Duration::from_millis(read_timeout)))?;
