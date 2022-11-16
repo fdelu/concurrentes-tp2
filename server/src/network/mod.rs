@@ -9,20 +9,20 @@ use actix_rt::task::JoinHandle;
 use mockall_double::double;
 
 mod connection;
-mod error;
+pub mod error;
 mod listener;
-mod messages;
+pub mod messages;
 mod socket;
+
+pub use error::SocketError;
+pub use socket::ReceivedPacket;
 
 #[double]
 use self::connection::Connection;
 #[double]
 use self::listener::Listener;
 pub use self::messages::*;
-use self::{
-    error::SocketError,
-    socket::{ReceivedPacket, SocketEnd, SocketSend, Stream},
-};
+use self::socket::{SocketEnd, SocketSend, Stream};
 use common::AHandler;
 
 pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
@@ -33,7 +33,7 @@ pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
 }
 
 impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
-    fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
+    pub fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,
@@ -43,7 +43,7 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
     }
 
     fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
-        let bind_to = self.bind_to.ip().clone();
+        let bind_to = self.bind_to.ip();
         let connection = self.connections.entry(addr).or_insert_with(move || {
             Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
         });
