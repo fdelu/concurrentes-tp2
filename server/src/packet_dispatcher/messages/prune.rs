@@ -1,6 +1,6 @@
-use crate::dist_mutex::messages::Timestamp;
 use crate::PacketDispatcher;
 use actix::prelude::*;
+use crate::dist_mutex::packets::Timestamp;
 
 #[derive(Message)]
 #[rtype(result = "()")]

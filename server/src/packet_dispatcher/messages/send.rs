@@ -1,44 +1,42 @@
 use actix::prelude::*;
 
+use crate::dist_mutex::server_id::ServerId;
 use crate::network::{SendPacket, SocketError};
-use crate::packet_dispatcher::packet::PacketType;
-use crate::{PacketDispatcher, ServerId};
+use crate::packet_dispatcher::packet::Packet;
+use crate::PacketDispatcher;
 
 #[derive(Message)]
 #[rtype(result = "Result<(), SocketError>")]
 pub struct SendMessage {
     pub to: ServerId,
-    pub data: Vec<u8>,
-    pub packet_type: PacketType,
+    pub packet: Packet,
 }
 
 impl Handler<SendMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, mut msg: SendMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let mut data = vec![u8::from(msg.packet_type)];
-        data.append(&mut msg.data);
+    fn handle(&mut self, msg: SendMessage, _ctx: &mut Self::Context) -> Self::Result {
         let socket_addr = self.socket.clone();
         async move {
             match socket_addr
                 .send(SendPacket {
                     to: msg.to.into(),
-                    data,
+                    data: serde_json::to_vec(&msg.packet).unwrap(),
                 })
                 .await?
             {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     println!(
-                        "Error sending packet of type {:?} to {}: {}",
-                        msg.packet_type, msg.to, e
+                        "Error sending packet to {}: {}",
+                        msg.to, e
                     );
                     Err(e)
                 }
             }
         }
-        .into_actor(self)
-        .map(|res, _act, _ctx| res)
-        .boxed_local()
+            .into_actor(self)
+            .map(|res, _act, _ctx| res)
+            .boxed_local()
     }
 }

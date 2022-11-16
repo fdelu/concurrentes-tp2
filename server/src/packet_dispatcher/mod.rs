@@ -1,20 +1,22 @@
-use actix::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 
+use actix::prelude::*;
+
+use common::AHandler;
+
+use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::dist_mutex::messages::ack::AckMessage;
 use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
-use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::MutexPacket;
-use crate::dist_mutex::{DistMutex, MutexCreationTrait, ResourceId, ServerId};
-use crate::network::messages::ReceivedPacket;
+use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
+use crate::dist_mutex::server_id::ServerId;
 use crate::network::{ConnectionHandler, SendPacket};
+use crate::network::messages::ReceivedPacket;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::packet_dispatcher::packet::{PacketType, SyncRequestPacket, SyncResponsePacket};
-use common::AHandler;
+use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
 
 pub mod messages;
 pub mod packet;
@@ -24,12 +26,11 @@ pub trait TCPActorTrait: AHandler<SendPacket> {}
 impl<A: AHandler<ReceivedPacket>> TCPActorTrait for ConnectionHandler<A> {}
 
 pub trait PacketDispatcherTrait:
-    AHandler<ReceivedPacket>
-    + AHandler<BroadcastMessage>
-    + AHandler<PruneMessage>
-    + AHandler<SendMessage>
-{
-}
+AHandler<ReceivedPacket>
++ AHandler<BroadcastMessage>
++ AHandler<PruneMessage>
++ AHandler<SendMessage>
+{}
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
@@ -38,8 +39,8 @@ pub(crate) const SERVERS: [ServerId; 3] =
 
 pub trait TCPActorCreationTrait<P: PacketDispatcherTrait> {
     fn new(receiver_handler: Addr<P>) -> Self
-    where
-        Self: TCPActorTrait;
+        where
+            Self: TCPActorTrait;
 }
 
 pub struct PacketDispatcher {
@@ -80,14 +81,13 @@ impl PacketDispatcher {
 
     fn send_sync_request(&mut self, ctx: &mut Context<Self>) {
         let packet = SyncRequestPacket {
-            timestamp: Timestamp::new(),
+            timestamp: get_timestamp(),
         };
         let my_addr = ctx.address();
         self.servers_last_seen.iter().for_each(|(&server_id, _)| {
             my_addr.do_send(SendMessage {
                 to: server_id,
-                data: packet.clone().into(),
-                packet_type: PacketType::SyncRequest,
+                packet: Packet::SyncRequest(packet),
             });
         });
     }
@@ -96,21 +96,21 @@ impl PacketDispatcher {
         match packet {
             MutexPacket::Request(request) => {
                 println!("Received request from {}", from);
-                let mutex = self.get_or_create_mutex(ctx, request.id());
+                let mutex = self.get_or_create_mutex(ctx, request.id);
                 let message = RequestMessage::new(from, request);
 
                 mutex.try_send(message).unwrap();
             }
             MutexPacket::Ack(ack) => {
-                let mutex = self.get_or_create_mutex(ctx, ack.id());
+                let mutex = self.get_or_create_mutex(ctx, ack.id);
                 let message = AckMessage::new(from, ack);
                 mutex.try_send(message).unwrap();
             }
             MutexPacket::Ok(ok) => {
-                let servers_last_seen = self.servers_last_seen.clone().keys().cloned().collect();
-                let mutex = self.get_or_create_mutex(ctx, ok.id());
+                let connected_servers = self.get_connected_servers();
+                let mutex = self.get_or_create_mutex(ctx, ok.id);
 
-                let message = OkMessage::new(from, servers_last_seen, ok);
+                let message = OkMessage::new(from, connected_servers, ok);
                 mutex.try_send(message).unwrap();
             }
         }
@@ -128,8 +128,7 @@ impl PacketDispatcher {
         ctx.address()
             .try_send(SendMessage {
                 to: from,
-                data: packet.into(),
-                packet_type: PacketType::SyncResponse,
+                packet: Packet::SyncResponse(packet),
             })
             .unwrap();
     }
