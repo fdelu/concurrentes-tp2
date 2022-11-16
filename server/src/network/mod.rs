@@ -22,17 +22,17 @@ use self::connection::Connection;
 #[double]
 use self::listener::Listener;
 pub use self::messages::*;
-use self::socket::{SocketEnd, SocketSend, Stream};
+use self::socket::{Packet, SocketEnd, SocketSend, Stream};
 use common::AHandler;
 
-pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
-    connections: HashMap<SocketAddr, Connection<Self>>,
+pub struct ConnectionHandler<A: AHandler<ReceivedPacket<P>>, P: Packet> {
+    connections: HashMap<SocketAddr, Connection<Self, P>>,
     received_handler: Addr<A>,
     join_listener: Option<JoinHandle<()>>,
     bind_to: SocketAddr,
 }
 
-impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> ConnectionHandler<A, P> {
     pub fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
@@ -42,7 +42,7 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
         }
     }
 
-    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
+    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self, P> {
         let bind_to = self.bind_to.ip();
         let connection = self.connections.entry(addr).or_insert_with(move || {
             Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
@@ -51,7 +51,7 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Actor for ConnectionHandler<A, P> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -63,10 +63,10 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
 
 // Public messages
 
-impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for ConnectionHandler<A, P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: SendPacket, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: SendPacket<P>, ctx: &mut Context<Self>) -> Self::Result {
         let connection = self.get_connection(ctx.address(), msg.to);
         connection.restart_timeout();
         let socket = connection.get_socket();
@@ -77,7 +77,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<Listen> for ConnectionHandler<A, P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, _: Listen, _ctx: &mut Context<Self>) -> Self::Result {
@@ -97,10 +97,12 @@ impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<ReceivedPacket> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<ReceivedPacket<P>>
+    for ConnectionHandler<A, P>
+{
     type Result = ();
 
-    fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ReceivedPacket<P>, _ctx: &mut Context<Self>) -> Self::Result {
         if let Some(conn) = self.connections.get_mut(&msg.addr) {
             conn.restart_timeout();
         }
@@ -111,7 +113,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<ReceivedPacket> for ConnectionHandler<
 
 // Private Messages
 
-impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<AddStream> for ConnectionHandler<A, P> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
@@ -125,7 +127,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<SocketEnd> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SocketEnd> for ConnectionHandler<A, P> {
     type Result = ();
 
     fn handle(&mut self, msg: SocketEnd, _ctx: &mut Self::Context) {
@@ -147,25 +149,26 @@ mod tests {
     use super::connection::test::connection_new_context;
     use super::listener::test::listener_new_context;
     use super::messages::tests::MockTcpStream as TcpStream;
+    use super::socket::Packet;
     use super::socket::{tests::MockSocket as Socket, ReceivedPacket};
     use super::Listener;
     use super::{Connection, ConnectionHandler};
 
-    pub struct Receiver {
-        pub received: Arc<Mutex<Vec<ReceivedPacket>>>,
+    pub struct Receiver<P: Packet> {
+        pub received: Arc<Mutex<Vec<ReceivedPacket<P>>>>,
     }
-    impl Actor for Receiver {
+    impl<P: Packet> Actor for Receiver<P> {
         type Context = Context<Self>;
     }
-    impl Handler<ReceivedPacket> for Receiver {
+    impl<P: Packet> Handler<ReceivedPacket<P>> for Receiver<P> {
         type Result = ();
 
-        fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Self::Context) {
+        fn handle(&mut self, msg: ReceivedPacket<P>, _ctx: &mut Self::Context) {
             self.received.lock().unwrap().push(msg);
         }
     }
 
-    type CH = ConnectionHandler<Receiver>;
+    type CH = ConnectionHandler<Receiver<Vec<u8>>, Vec<u8>>;
     macro_rules! local {
         () => {
             SocketAddr::from(([127, 0, 0, 1], 25000))

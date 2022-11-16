@@ -1,63 +1,45 @@
-use std::mem::swap;
-
-use tokio::io::AsyncReadExt;
+use serde::de::DeserializeOwned;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::network::error::SocketError;
 
-use super::{OnEnd, OnRead};
+use super::{OnEnd, OnRead, PACKET_SEP};
 
-use super::write::{LEN_BYTES, MAGIC_NUMBER};
-
-pub struct ReaderLoop<T: AsyncReadExt + Unpin> {
-    reader: T,
-    on_read: OnRead,
+pub struct ReaderLoop<T: AsyncReadExt + Unpin, P: DeserializeOwned> {
+    reader: BufReader<T>,
+    on_read: OnRead<P>,
     on_end: OnEnd,
 }
 
-impl<T: AsyncReadExt + Unpin> ReaderLoop<T> {
-    pub fn new(reader: T, on_read: OnRead, on_end: OnEnd) -> Self {
+impl<T: AsyncReadExt + Unpin, P: DeserializeOwned> ReaderLoop<T, P> {
+    pub fn new(reader: T, on_read: OnRead<P>, on_end: OnEnd) -> Self {
         Self {
-            reader,
+            reader: BufReader::new(reader),
             on_read,
             on_end,
         }
     }
 
-    fn check_message(message: &mut Vec<u8>, on_read: &mut OnRead) -> Result<(), SocketError> {
-        while message.len() >= MAGIC_NUMBER.len() + LEN_BYTES {
-            if !message.starts_with(&MAGIC_NUMBER) {
-                // Something went wrong: Magic number does not match
-                println!("{:?}", message);
-                return Err(SocketError::new("Magic number does not match"));
-            }
+    // Returns message size or 0 if EOF reached
+    async fn process_message(&mut self, buffer: &mut Vec<u8>) -> Result<usize, SocketError> {
+        buffer.clear();
+        let size = self.reader.read_until(PACKET_SEP, buffer).await?;
+        (self.on_read)(serde_json::from_slice(buffer)?);
 
-            let length = u16::from_be_bytes(
-                message[MAGIC_NUMBER.len()..MAGIC_NUMBER.len() + LEN_BYTES].try_into()?,
-            ) as usize;
-
-            if message.len() < MAGIC_NUMBER.len() + LEN_BYTES + length {
-                // We don't have the whole message yet
-                break;
-            }
-
-            let mut splitted = message.split_off(MAGIC_NUMBER.len() + LEN_BYTES + length);
-            swap(message, &mut splitted);
-            on_read(splitted.split_off(MAGIC_NUMBER.len() + LEN_BYTES));
-        }
-        Ok(())
+        Ok(size)
     }
 
     pub async fn run(mut self) {
-        let mut message = vec![];
-        let mut buf = [0; 1024];
-        while let Ok(size) = self.reader.read(&mut buf).await {
-            if size == 0 {
-                break;
-            }
-            message.extend_from_slice(&buf[..size]);
-            if let Err(e) = Self::check_message(&mut message, &mut self.on_read) {
-                eprintln!("Error reading from stream: {}", e);
-                break;
+        let mut buffer = vec![];
+        let reader = BufReader::new(self.reader);
+        loop {
+            match self.process_message(&mut buffer) {
+                Ok(0) => break,
+                Err(e) => {
+                    eprintln!("Error in ReaderLoop: {}", e);
+                    break;
+                }
+                _ => (),
             }
         }
         (self.on_end)();
@@ -102,8 +84,7 @@ mod tests {
 
     #[test]
     fn test_read_basic() {
-        let mut input = MAGIC_NUMBER.to_vec();
-        input.extend_from_slice(&[0, 4, 1, 2, 3, 4]); // Largo 4, mensaje 1 2 3 4
+        let mut input = [1, 2, 3, 4, PACKET_SEP]; // Largo 4, mensaje 1 2 3 4
         let (read, ended) = setup(vec![input]);
 
         assert_eq!(read.lock().unwrap().clone(), vec![vec![1, 2, 3, 4]]);
@@ -111,10 +92,8 @@ mod tests {
     }
 
     #[test]
-    fn test_read_invalid_number() {
-        let mut input = MAGIC_NUMBER.to_vec();
-        input.extend_from_slice(&[0, 4, 1, 2, 3, 4]); // Largo 4, mensaje 1 2 3 4
-        input[0] += 1;
+    fn test_no_new_line() {
+        let mut input = [1, 2, 3, 4]; // Largo 4, mensaje 1 2 3 4
 
         let (read, ended) = setup(vec![input]);
 
@@ -124,10 +103,8 @@ mod tests {
 
     #[test]
     fn test_read_twice() {
-        let mut input = MAGIC_NUMBER.to_vec();
-        input.extend_from_slice(&[0, 2, 9, 3]); // Largo 2, mensaje 9 3
-        let mut input_2 = MAGIC_NUMBER.to_vec();
-        input_2.extend_from_slice(&[0, 2, 1, 2]); // Largo 2, mensaje 1 2
+        let mut input = [9, 3, PACKET_SEP]; // Largo 2, mensaje 9 3
+        let mut input_2 = [0, 2, PACKET_SEP]; // Largo 2, mensaje 1 2
 
         let (read, ended) = setup(vec![input, input_2]);
 
@@ -138,15 +115,9 @@ mod tests {
     #[test]
     fn test_read_twice_mixed_reads() {
         let mut inputs = vec![];
-        MAGIC_NUMBER
-            .iter()
-            .for_each(|byte| inputs.push(vec![*byte]));
-        inputs.push(vec![0, 1, 3, MAGIC_NUMBER[0]]); // Largo 1, mensaje 3, principio del siguiente
-        MAGIC_NUMBER[1..]
-            .iter()
-            .for_each(|byte| inputs.push(vec![*byte]));
-        inputs.push(vec![0, 3, 4, 5]);
-        inputs.push(vec![4]); // Largo 3, mensaje 4 5 4
+        inputs.push(vec![3, "\n".4]); // Largo 1, mensaje 3, principio del siguiente
+        inputs.push(vec![4, 5]);
+        inputs.push(vec![4, "\n"]); // Largo 3, mensaje 4 5 4
 
         let (read, ended) = setup(inputs);
 
@@ -156,10 +127,8 @@ mod tests {
 
     #[test]
     fn test_not_ended() {
-        let mut input = MAGIC_NUMBER.to_vec();
-        input.extend_from_slice(&[0, 2, 9, 3]); // Largo 2, mensaje 9 3
-        let mut input_2 = MAGIC_NUMBER.to_vec();
-        input_2.extend_from_slice(&[0, 2, 1, 2]); // Largo 2, mensaje 1 2
+        let mut input = [9, 3, PACKET_SEP]; // Largo 2, mensaje 9 3
+        let mut input_2 = [0, 2, PACKET_SEP]; // Largo 2, mensaje 1 2
 
         let (tx, rx) = channel();
         let (mut before_tx, before_rx) = duplex(1024);
@@ -174,7 +143,7 @@ mod tests {
             let socket = ReaderLoop::new(before_rx, on_read, on_end);
             let future = socket.run();
             task::yield_now().await; // more likely que se empiece a ejecutar el socket
-            assert!(!ended_c2.load(Relaxed));
+            assert!(!ended_c2.load(Relaxed)); // todavia no deberia figurar como ended
             before_tx.write_all(&input_2).await.unwrap();
             drop(before_tx);
             future.await;

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use actix::Message;
 #[cfg(not(test))]
 use actix_rt::net::TcpStream;
+use serde::Serialize;
 #[cfg(test)]
 use tests::MockTcpStream as TcpStream;
 
@@ -14,9 +15,9 @@ pub use crate::network::socket::ReceivedPacket;
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "Result<(), SocketError>")]
-pub struct SendPacket {
+pub struct SendPacket<T: Serialize> {
     pub to: SocketAddr,
-    pub data: Vec<u8>,
+    pub data: T,
 }
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
