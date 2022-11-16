@@ -2,8 +2,8 @@ use actix::prelude::*;
 
 use common::AHandler;
 
-use crate::dist_mutex::{DistMutex, MutexResult};
 use crate::dist_mutex::packets::{MutexPacket, OkPacket};
+use crate::dist_mutex::{DistMutex, MutexResult};
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 
@@ -27,7 +27,7 @@ impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
             .map(|(_, server_id)| {
                 dispatcher.send(SendMessage {
                     to: *server_id,
-                    packet: Packet::Mutex(MutexPacket::Ok(packet.clone())),
+                    packet: Packet::Mutex(MutexPacket::Ok(packet)),
                 })
             })
             .collect();
@@ -42,7 +42,7 @@ impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
             }
             Ok(())
         }
-            .into_actor(self)
-            .boxed_local()
+        .into_actor(self)
+        .boxed_local()
     }
 }

@@ -4,9 +4,9 @@ use tokio::try_join;
 
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
-use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::dist_mutex::packets::ResourceId;
 use crate::dist_mutex::server_id::ServerId;
+use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::Listen;
 use crate::packet_dispatcher::messages::add_mutex::AddMutexMessage;
 use crate::packet_dispatcher::{PacketDispatcher, SERVERS};
@@ -24,7 +24,12 @@ async fn main() {
     let dispatcher = PacketDispatcher::new(SERVERS[n]);
 
     let addr: SocketAddr = SERVERS[n].into();
-    println!("I am server {} (addr: {}, {})", n, addr, ServerId::from(addr));
+    println!(
+        "I am server {} (addr: {}, {})",
+        n,
+        addr,
+        ServerId::from(addr)
+    );
 
     dispatcher.try_send(Listen {}).unwrap();
 

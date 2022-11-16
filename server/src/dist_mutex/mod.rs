@@ -3,21 +3,21 @@ use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
+use crate::dist_mutex::packets::{ResourceId, Timestamp};
+use crate::dist_mutex::server_id::ServerId;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use actix::prelude::*;
 use common::AHandler;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use crate::dist_mutex::packets::{ResourceId, Timestamp};
-use crate::dist_mutex::server_id::ServerId;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
-pub mod server_id;
 pub mod impl_traits;
 pub mod messages;
 pub mod packets;
+pub mod server_id;
 
 #[cfg(not(test))]
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);

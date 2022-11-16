@@ -19,7 +19,7 @@ impl Handler<BroadcastMessage> for PacketDispatcher {
             self.get_connected_servers().len()
         );
         println!("Connected servers: {:?}", self.get_connected_servers());
-        
+
         let futures: Vec<_> = self
             .get_connected_servers()
             .iter()
@@ -35,7 +35,7 @@ impl Handler<BroadcastMessage> for PacketDispatcher {
             }
             Ok(())
         }
-            .into_actor(self)
-            .boxed_local()
+        .into_actor(self)
+        .boxed_local()
     }
 }

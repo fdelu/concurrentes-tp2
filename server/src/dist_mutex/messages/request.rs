@@ -2,8 +2,8 @@ use actix::prelude::*;
 
 use common::AHandler;
 
-use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket, Timestamp};
+use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 

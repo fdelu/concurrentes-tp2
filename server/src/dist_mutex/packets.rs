@@ -1,5 +1,5 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type Timestamp = u128;
 pub type ResourceId = u32;
@@ -31,7 +31,7 @@ impl RequestPacket {
     pub fn new(id: ResourceId) -> Self {
         Self {
             id,
-            timestamp: get_timestamp()
+            timestamp: get_timestamp(),
         }
     }
 }

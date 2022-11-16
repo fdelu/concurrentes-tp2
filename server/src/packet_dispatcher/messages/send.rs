@@ -27,16 +27,13 @@ impl Handler<SendMessage> for PacketDispatcher {
             {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    println!(
-                        "Error sending packet to {}: {}",
-                        msg.to, e
-                    );
+                    println!("Error sending packet to {}: {}", msg.to, e);
                     Err(e)
                 }
             }
         }
-            .into_actor(self)
-            .map(|res, _act, _ctx| res)
-            .boxed_local()
+        .into_actor(self)
+        .map(|res, _act, _ctx| res)
+        .boxed_local()
     }
 }

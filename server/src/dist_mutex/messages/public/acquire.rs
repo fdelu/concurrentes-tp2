@@ -5,11 +5,11 @@ use tokio::time;
 
 use common::AHandler;
 
+use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
+use crate::dist_mutex::MutexError::Mailbox;
 use crate::dist_mutex::{
     DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
 };
-use crate::dist_mutex::MutexError::Mailbox;
-use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::packet::Packet;
@@ -31,7 +31,7 @@ impl Default for AcquireMessage {
 }
 
 impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMessage>
-for DistMutex<P>
+    for DistMutex<P>
 {
     type Result = ResponseActFuture<Self, MutexResult<()>>;
 
@@ -68,7 +68,7 @@ for DistMutex<P>
                 Ok(())
             }
         }
-            .into_actor(self);
+        .into_actor(self);
 
         future
             .then(|r, me, _| {
@@ -134,8 +134,8 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
                 Ok(())
             }
         }
-            .into_actor(self)
-            .boxed_local()
+        .into_actor(self)
+        .boxed_local()
     }
 }
 
@@ -147,16 +147,16 @@ mod tests {
 
     use actix::prelude::*;
 
-    use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
     use crate::dist_mutex::messages::ack::AckMessage;
     use crate::dist_mutex::messages::ok::OkMessage;
-    use crate::dist_mutex::MutexError;
     use crate::dist_mutex::packets::{AckPacket, OkPacket};
     use crate::dist_mutex::server_id::ServerId;
+    use crate::dist_mutex::MutexError;
     use crate::network::SocketError;
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
+    use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
 
     struct TestDispatcher {
         pub broadcasts: Arc<Mutex<Vec<BroadcastMessage>>>,
@@ -210,7 +210,8 @@ mod tests {
 
         let broadcasts = dispatcher.lock().unwrap();
         assert_eq!(broadcasts.len(), 1);
-        if let Packet::Mutex(_) = broadcasts[0].packet {} else {
+        if let Packet::Mutex(_) = broadcasts[0].packet {
+        } else {
             panic!("Wrong packet type");
         }
 

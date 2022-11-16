@@ -19,7 +19,6 @@ impl Handler<ReceivedPacket> for PacketDispatcher {
         self.servers_last_seen
             .insert(origin_addr.into(), Some(get_timestamp()));
 
-
         match packet {
             Packet::Mutex(packet) => {
                 self.handle_mutex(origin_addr.into(), packet, ctx);

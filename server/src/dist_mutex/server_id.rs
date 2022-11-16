@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::net::SocketAddr;
-use serde::{Deserialize, Serialize};
 
 const PORT: u16 = 8080;
 

@@ -5,14 +5,14 @@ use actix::prelude::*;
 
 use common::AHandler;
 
-use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::dist_mutex::messages::ack::AckMessage;
 use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
 use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
-use crate::network::{ConnectionHandler, SendPacket};
+use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::messages::ReceivedPacket;
+use crate::network::{ConnectionHandler, SendPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
@@ -26,11 +26,12 @@ pub trait TCPActorTrait: AHandler<SendPacket> {}
 impl<A: AHandler<ReceivedPacket>> TCPActorTrait for ConnectionHandler<A> {}
 
 pub trait PacketDispatcherTrait:
-AHandler<ReceivedPacket>
-+ AHandler<BroadcastMessage>
-+ AHandler<PruneMessage>
-+ AHandler<SendMessage>
-{}
+    AHandler<ReceivedPacket>
+    + AHandler<BroadcastMessage>
+    + AHandler<PruneMessage>
+    + AHandler<SendMessage>
+{
+}
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
@@ -39,8 +40,8 @@ pub(crate) const SERVERS: [ServerId; 3] =
 
 pub trait TCPActorCreationTrait<P: PacketDispatcherTrait> {
     fn new(receiver_handler: Addr<P>) -> Self
-        where
-            Self: TCPActorTrait;
+    where
+        Self: TCPActorTrait;
 }
 
 pub struct PacketDispatcher {
