@@ -38,12 +38,6 @@ impl PacketDispatcherTrait for PacketDispatcher {}
 pub(crate) const SERVERS: [ServerId; 3] =
     [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }];
 
-pub trait TCPActorCreationTrait<P: PacketDispatcherTrait> {
-    fn new(receiver_handler: Addr<P>) -> Self
-    where
-        Self: TCPActorTrait;
-}
-
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
