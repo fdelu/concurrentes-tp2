@@ -69,9 +69,8 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for Conne
     fn handle(&mut self, msg: SendPacket<P>, ctx: &mut Context<Self>) -> Self::Result {
         let connection = self.get_connection(ctx.address(), msg.to);
         connection.restart_timeout();
-        let socket = connection.get_socket();
-
-        async move { socket.send(SocketSend { data: msg.data }).await? }
+        connection
+            .send(SocketSend { data: msg.data })
             .into_actor(self)
             .boxed_local()
     }
@@ -150,11 +149,8 @@ mod tests {
     use super::listener::test::listener_new_context;
     use super::Listener;
     use super::{Connection, ConnectionHandler};
-    use common::socket::Packet;
-    use common::socket::{
-        test_util::{MockSocket as Socket, MockTcpStream as TcpStream},
-        ReceivedPacket,
-    };
+    use common::socket::{test_util::MockTcpStream as TcpStream, ReceivedPacket};
+    use common::socket::{Packet, SocketError, SocketSend};
 
     pub struct Receiver<P: Packet> {
         pub received: Arc<Mutex<Vec<ReceivedPacket<P>>>>,
@@ -185,20 +181,19 @@ mod tests {
             received: received.clone(),
         };
 
-        let sent = Arc::new(Mutex::new(Vec::new()));
-        let socket = Socket::get(sent.clone());
-
         let data = vec![1, 2, 3, 4, 5];
         let data_c = data.clone();
 
         let addr = SocketAddr::from(([127, 0, 0, 1], 1234));
 
         sys.block_on(async move {
-            let socket = socket.start();
             let receiver = receiver.start();
             let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
-            conn.expect_get_socket().times(1).return_const(socket);
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data }))
+                .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
@@ -214,7 +209,7 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             handler
                 .send(SendPacket {
@@ -226,8 +221,6 @@ mod tests {
                 .unwrap();
         });
 
-        assert_eq!(sent.lock().unwrap().len(), 1);
-        assert_eq!(sent.lock().unwrap()[0].data, data);
         assert_eq!(received.lock().unwrap().len(), 0);
     }
 
@@ -267,9 +260,6 @@ mod tests {
             received: received.clone(),
         };
 
-        let sent = Arc::new(Mutex::new(Vec::new()));
-        let socket = Socket::get(sent.clone());
-
         let data = vec![1, 2, 3, 4, 5];
         let data_1: Vec<u8> = (3..211).collect();
         let data_c = data.clone();
@@ -278,11 +268,17 @@ mod tests {
         let addr = SocketAddr::from(([170, 123, 200, 15], 5000));
 
         sys.block_on(async move {
-            let socket = socket.start();
             let receiver = receiver.start();
             let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
-            conn.expect_get_socket().times(2).return_const(socket);
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data }))
+                .returning(|_| Box::pin(async { Ok(()) }));
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data: data_1 }))
+                .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
@@ -298,7 +294,7 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             // First send should create Connection and restart timeout
             handler
@@ -321,9 +317,6 @@ mod tests {
                 .unwrap();
         });
 
-        assert_eq!(sent.lock().unwrap().len(), 2);
-        assert_eq!(sent.lock().unwrap()[0].data, data);
-        assert_eq!(sent.lock().unwrap()[1].data, data_1);
         assert_eq!(received.lock().unwrap().len(), 0);
     }
 
@@ -335,9 +328,6 @@ mod tests {
             received: received.clone(),
         };
 
-        let sent = Arc::new(Mutex::new(Vec::new()));
-        let socket = Socket::get(sent.clone());
-
         let data = vec![10, 3, 2];
         let data_1: Vec<u8> = (5..20).collect();
         let data_c = data.clone();
@@ -346,11 +336,13 @@ mod tests {
         let addr = SocketAddr::from(([34, 54, 12, 65], 1883));
 
         sys.block_on(async move {
-            let socket = socket.start();
             let receiver = receiver.start();
             let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
-            conn.expect_get_socket().times(1).return_const(socket); // Only one send
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data }))
+                .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
@@ -366,7 +358,7 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             // First send should create Connection and restart timeout
             handler
@@ -388,8 +380,6 @@ mod tests {
                 .unwrap();
         });
 
-        assert_eq!(sent.lock().unwrap().len(), 1);
-        assert_eq!(sent.lock().unwrap()[0].data, data);
         assert_eq!(received.lock().unwrap().len(), 1);
         assert_eq!(received.lock().unwrap()[0].data, data_1);
     }
@@ -402,18 +392,19 @@ mod tests {
             received: received.clone(),
         };
 
-        let socket = Socket::get_failing();
-
         let data = vec![23, 43, 12, 5];
+        let data_c = data.clone();
 
         let addr = SocketAddr::from(([23, 43, 12, 5], 25565));
 
         sys.block_on(async move {
-            let socket = socket.start();
             let receiver = receiver.start();
             let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
-            conn.expect_get_socket().times(1).return_const(socket);
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data }))
+                .returning(|_| Box::pin(async { Err(SocketError::new("Mock failed")) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
@@ -429,10 +420,13 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(1)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             assert!(handler
-                .send(SendPacket { to: addr, data })
+                .send(SendPacket {
+                    to: addr,
+                    data: data_c
+                })
                 .await
                 .unwrap()
                 .is_err());
@@ -469,7 +463,7 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::Existing(_))),
                 )
                 .times(1)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             handler
                 .send(AddStream {
@@ -491,10 +485,6 @@ mod tests {
             received: received.clone(),
         };
 
-        let sent = Arc::new(Mutex::new(Vec::new()));
-        let socket = Socket::get(sent.clone());
-        let socket_1 = Socket::get(sent.clone());
-
         let data = vec![1, 2, 3, 4, 5];
         let data_1: Vec<u8> = (3..211).collect();
         let data_c = data.clone();
@@ -503,15 +493,20 @@ mod tests {
         let addr = SocketAddr::from(([170, 123, 200, 15], 5000));
 
         sys.block_on(async move {
-            let socket = socket.start();
-            let socket_1 = socket_1.start();
             let receiver = receiver.start();
             let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
-            conn.expect_get_socket().times(1).return_const(socket);
+            conn.expect_send()
+                .times(1)
+                .with(eq(SocketSend { data }))
+                .returning(|_| Box::pin(async { Ok(()) }));
             let mut conn_1: Connection<CH, Vec<u8>> = Connection::default();
             conn_1.expect_restart_timeout().times(1).return_const(());
-            conn_1.expect_get_socket().times(1).return_const(socket_1);
+            conn_1
+                .expect_send()
+                .times(1)
+                .with(eq(SocketSend { data: data_1 }))
+                .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
@@ -527,7 +522,7 @@ mod tests {
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
                 .times(2)
-                .returning(move |_, _, _, _| conn_v.pop().unwrap());
+                .returning(move |_, _, _, _| conn_v.remove(0));
 
             // First send should create Connection and restart timeout
             handler
@@ -553,9 +548,6 @@ mod tests {
                 .unwrap();
         });
 
-        assert_eq!(sent.lock().unwrap().len(), 2);
-        assert_eq!(sent.lock().unwrap()[0].data, data);
-        assert_eq!(sent.lock().unwrap()[1].data, data_1);
         assert_eq!(received.lock().unwrap().len(), 0);
     }
 

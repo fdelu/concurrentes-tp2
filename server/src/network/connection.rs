@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{future::Future, net::SocketAddr};
 
 use actix::{Actor, Addr};
 use tokio::{
@@ -8,7 +8,7 @@ use tokio::{
 
 #[cfg(test)]
 use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
-use common::socket::{Packet, ReceivedPacket, SocketEnd};
+use common::socket::{Packet, ReceivedPacket, SocketEnd, SocketError, SocketSend};
 #[cfg(not(test))]
 use common::socket::{Socket, Stream};
 use common::AHandler;
@@ -59,8 +59,10 @@ impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
         }));
     }
 
-    pub fn get_socket(&self) -> Addr<Socket<P>> {
-        self.socket.clone()
+    pub fn send(&self, msg: SocketSend<P>) -> impl Future<Output = Result<(), SocketError>> {
+        let socket = self.socket.clone();
+
+        async move { socket.send(msg).await? }
     }
 }
 
