@@ -1,18 +1,21 @@
 use serde::{Deserialize, Serialize};
 
-pub type UserId = String;
+use crate::socket::SocketError;
+
+pub type UserId = u32;
 pub type Amount = u32;
+pub type TxId = u32;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum ClientPacket {
-    PrepareOrder(UserId, Amount),
-    CommitOrder(),
-    AbortOrder(),
-    AddPoints(UserId, Amount),
+    PrepareOrder(UserId, Amount, TxId),
+    CommitOrder(TxId),
+    AddPoints(UserId, Amount, TxId),
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum ServerPacket {
-    Ready(),
-    Insufficient(),
+    Ready(TxId),
+    Insufficient(TxId),
+    ServerErrror(TxId, SocketError),
 }

@@ -59,10 +59,10 @@ impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
         }));
     }
 
-    pub fn send(&self, msg: SocketSend<P>) -> impl Future<Output = Result<(), SocketError>> {
+    pub fn send(&self, data: P) -> impl Future<Output = Result<(), SocketError>> {
         let socket = self.socket.clone();
 
-        async move { socket.send(msg).await? }
+        async move { socket.send(SocketSend { data }).await? }
     }
 }
 

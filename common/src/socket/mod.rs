@@ -34,7 +34,7 @@ pub use messages::*;
 pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
 
-pub(crate) const PACKET_SEP: u8 = '\n' as u8;
+pub(crate) const PACKET_SEP: u8 = b'\n';
 
 pub trait Packet: Serialize + DeserializeOwned + Send + Unpin + 'static {}
 impl<T: Serialize + DeserializeOwned + Send + Unpin + 'static> Packet for T {}

@@ -4,7 +4,9 @@ use std::{
     io,
 };
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SocketError {
     message: String,
 }

@@ -22,7 +22,7 @@ use common::socket::test_util::MockStream as Stream;
 pub use common::socket::ReceivedPacket;
 #[cfg(not(test))]
 use common::socket::Stream;
-use common::socket::{Packet, SocketEnd, SocketError, SocketSend};
+use common::socket::{Packet, SocketEnd, SocketError};
 use common::AHandler;
 
 pub struct ConnectionHandler<A: AHandler<ReceivedPacket<P>>, P: Packet> {
@@ -69,10 +69,7 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for Conne
     fn handle(&mut self, msg: SendPacket<P>, ctx: &mut Context<Self>) -> Self::Result {
         let connection = self.get_connection(ctx.address(), msg.to);
         connection.restart_timeout();
-        connection
-            .send(SocketSend { data: msg.data })
-            .into_actor(self)
-            .boxed_local()
+        connection.send(msg.data).into_actor(self).boxed_local()
     }
 }
 
@@ -150,7 +147,7 @@ mod tests {
     use super::Listener;
     use super::{Connection, ConnectionHandler};
     use common::socket::{test_util::MockTcpStream as TcpStream, ReceivedPacket};
-    use common::socket::{Packet, SocketError, SocketSend};
+    use common::socket::{Packet, SocketError};
 
     pub struct Receiver<P: Packet> {
         pub received: Arc<Mutex<Vec<ReceivedPacket<P>>>>,
@@ -192,7 +189,7 @@ mod tests {
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data }))
+                .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
@@ -273,11 +270,11 @@ mod tests {
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data }))
+                .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data: data_1 }))
+                .with(eq(data_1))
                 .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
@@ -341,7 +338,7 @@ mod tests {
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data }))
+                .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
@@ -403,7 +400,7 @@ mod tests {
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data }))
+                .with(eq(data))
                 .returning(|_| Box::pin(async { Err(SocketError::new("Mock failed")) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
@@ -498,14 +495,14 @@ mod tests {
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
-                .with(eq(SocketSend { data }))
+                .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
             let mut conn_1: Connection<CH, Vec<u8>> = Connection::default();
             conn_1.expect_restart_timeout().times(1).return_const(());
             conn_1
                 .expect_send()
                 .times(1)
-                .with(eq(SocketSend { data: data_1 }))
+                .with(eq(data_1))
                 .returning(|_| Box::pin(async { Ok(()) }));
             let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
