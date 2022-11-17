@@ -1,7 +1,7 @@
 use crate::network::Listen;
-use crate::network::SocketError;
 use crate::PacketDispatcher;
 use actix::prelude::*;
+use common::socket::SocketError;
 
 impl Handler<Listen> for PacketDispatcher {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;

@@ -1,9 +1,10 @@
 use actix::prelude::*;
 
 use crate::dist_mutex::server_id::ServerId;
-use crate::network::{SendPacket, SocketError};
+use crate::network::SendPacket;
 use crate::packet_dispatcher::packet::Packet;
 use crate::PacketDispatcher;
+use common::socket::SocketError;
 
 #[derive(Message)]
 #[rtype(result = "Result<(), SocketError>")]
@@ -21,7 +22,7 @@ impl Handler<SendMessage> for PacketDispatcher {
             match socket_addr
                 .send(SendPacket {
                     to: msg.to.into(),
-                    data: serde_json::to_vec(&msg.packet).unwrap(),
+                    data: msg.packet,
                 })
                 .await?
             {

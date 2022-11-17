@@ -1,55 +1,61 @@
+#![cfg_attr(any(test, feature = "socket_test"), allow(dead_code))]
 use std::io;
 use std::marker::Send;
 use std::net::{IpAddr, SocketAddr};
 
-#[cfg(test)]
-use super::messages::tests::MockTcpStream as TcpStream;
+use crate::AHandler;
 use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
 #[cfg(not(test))]
-use actix_rt::net::TcpSocket;
+type TcpSocket = actix_rt::net::TcpSocket;
 #[cfg(not(test))]
-use actix_rt::net::TcpStream;
-use common::AHandler;
+type TcpStream = actix_rt::net::TcpStream;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 #[cfg(test)]
-use tests::MockTcpSocket as TcpSocket;
+use test_util::MockTcpSocket as TcpSocket;
+#[cfg(test)]
+use test_util::MockTcpStream as TcpStream;
 use tokio::spawn;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
 
-use super::error::SocketError;
-
+mod error;
 mod messages;
 mod read;
 mod write;
 
 use self::read::ReaderLoop;
 use self::write::WriterLoop;
-
-pub use self::write::MAX_MESSAGE_SIZE;
+pub use error::SocketError;
 pub use messages::*;
 
 pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
-pub(crate) type OnRead = Box<dyn Fn(Vec<u8>) + Send + 'static>;
+pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
+
+pub(crate) const PACKET_SEP: u8 = '\n' as u8;
+
+pub trait Packet: Serialize + DeserializeOwned + Send + Unpin + 'static {}
+impl<T: Serialize + DeserializeOwned + Send + Unpin + 'static> Packet for T {}
 
 pub enum Stream {
     Existing(TcpStream),
     NewBindedTo(IpAddr),
 }
 
-pub struct Socket {
-    write_sender: UnboundedSender<WriterSend>,
+pub struct Socket<T: Packet> {
+    write_sender: UnboundedSender<WriterSend<T>>,
     stop_tx: Option<oneshot::Sender<()>>,
 }
 
-impl Socket {
-    pub fn new<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+impl<T: Packet> Socket<T> {
+    pub fn new<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
         received_handler: Addr<A>,
         end_handler: Addr<B>,
         socket_addr: SocketAddr,
         stream: Stream,
-    ) -> Socket {
+    ) -> Socket<T> {
         let (write_sender, write_receiver) = unbounded_channel();
         let end_h = end_handler.clone();
 
@@ -85,13 +91,13 @@ impl Socket {
         socket.connect(addr).await
     }
 
-    async fn run<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+    async fn run<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
         received_handler: Addr<A>,
         end_handler: Addr<B>,
         stop_rx: oneshot::Receiver<()>,
         stream: Stream,
         my_addr: SocketAddr,
-        write_receiver: UnboundedReceiver<WriterSend>,
+        write_receiver: UnboundedReceiver<WriterSend<T>>,
     ) -> Result<(), SocketError> {
         let stream = match stream {
             Stream::Existing(stream) => stream,
@@ -123,8 +129,8 @@ impl Socket {
         })
     }
 
-    fn on_read<A: AHandler<ReceivedPacket>>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead {
-        Box::new(move |data: Vec<u8>| {
+    fn on_read<A: AHandler<ReceivedPacket<T>>>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead<T> {
+        Box::new(move |data: T| {
             actor.do_send(ReceivedPacket {
                 data,
                 addr: my_addr,
@@ -133,7 +139,7 @@ impl Socket {
     }
 }
 
-impl Actor for Socket {
+impl<T: Packet> Actor for Socket<T> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -141,58 +147,80 @@ impl Actor for Socket {
     }
 }
 
-impl Handler<SocketSend> for Socket {
+impl<T: Packet> Handler<SocketSend<T>> for Socket<T> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: SocketSend<T>, _ctx: &mut Context<Self>) -> Self::Result {
         let (result_tx, result_rx) = oneshot::channel();
 
         if let Err(e) = self.write_sender.send(WriterSend {
             data: msg.data,
             result: Some(result_tx),
         }) {
-            Box::pin(async move { Err(e.into()) }.into_actor(self))
+            Box::pin(async move { Err(SocketError::new(&e.to_string())) }.into_actor(self))
         } else {
             Box::pin(async move { result_rx.await? }.into_actor(self))
         }
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[cfg(any(test, feature = "socket_test"))]
+pub mod test_util {
     use std::{
         io,
-        net::SocketAddr,
+        net::{IpAddr, SocketAddr},
         sync::{Arc, Mutex},
     };
 
     use actix::{Actor, Addr, Context, Handler};
     use mockall::mock;
+    use tokio::net::{tcp::OwnedReadHalf, unix::OwnedWriteHalf, ToSocketAddrs};
 
-    use super::{ReceivedPacket, SocketEnd, SocketSend, Stream, TcpStream};
-    use crate::network::error::SocketError;
-    use common::AHandler;
+    use super::SocketError;
+    use super::{Packet, ReceivedPacket, SocketEnd, SocketSend};
+    use crate::AHandler;
 
     mock! {
         pub TcpSocket {
             pub fn new_v4() -> io::Result<Self>;
             pub fn new_v6() -> io::Result<Self>;
             pub fn bind(&self, addr: SocketAddr) -> io::Result<()>;
-            pub async fn connect(self, addr: SocketAddr) -> io::Result<TcpStream>;
+            pub async fn connect(self, addr: SocketAddr) -> io::Result<MockTcpStream>;
         }
     }
+    mock! {
+        pub TcpStream {
+            pub async fn connect(addr: SocketAddr) -> io::Result<Self>;
+            pub fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf);
+        }
+    }
+    mock! {
+        pub TcpListener {
+            pub async fn accept(&mut self) -> io::Result<(MockTcpStream, SocketAddr)>;
+            pub fn local_addr(&self) -> io::Result<SocketAddr>;
+            pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self>;
+        }
+    }
+    pub enum MockStream {
+        Existing(MockTcpStream),
+        NewBindedTo(IpAddr),
+    }
 
-    pub struct MockSocket {
-        pub sent: Arc<Mutex<Vec<SocketSend>>>,
+    pub struct MockSocket<T: Packet> {
+        pub sent: Arc<Mutex<Vec<SocketSend<T>>>>,
         fail: bool,
     }
-    impl Actor for MockSocket {
+    impl<T: Packet> Actor for MockSocket<T> {
         type Context = Context<Self>;
     }
-    impl Handler<SocketSend> for MockSocket {
+    impl<T: Packet> Handler<SocketSend<T>> for MockSocket<T> {
         type Result = Result<(), SocketError>;
 
-        fn handle(&mut self, msg: SocketSend, _ctx: &mut Context<Self>) -> Result<(), SocketError> {
+        fn handle(
+            &mut self,
+            msg: SocketSend<T>,
+            _ctx: &mut Context<Self>,
+        ) -> Result<(), SocketError> {
             if self.fail {
                 return Err(SocketError::new("MockSocket failed"));
             }
@@ -200,17 +228,17 @@ pub(crate) mod tests {
             Ok(())
         }
     }
-    impl MockSocket {
-        pub fn new<A: AHandler<ReceivedPacket>, B: AHandler<SocketEnd>>(
+    impl<T: Packet> MockSocket<T> {
+        pub fn new<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
             _: Addr<A>,
             _: Addr<B>,
             _: SocketAddr,
-            _: Stream,
+            _: MockStream,
         ) -> Self {
             Self::get(Arc::new(Mutex::new(Vec::new())))
         }
 
-        pub fn get(sent: Arc<Mutex<Vec<SocketSend>>>) -> Self {
+        pub fn get(sent: Arc<Mutex<Vec<SocketSend<T>>>>) -> Self {
             MockSocket { sent, fail: false }
         }
 

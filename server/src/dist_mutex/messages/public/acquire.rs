@@ -152,11 +152,11 @@ mod tests {
     use crate::dist_mutex::packets::{AckPacket, OkPacket};
     use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::MutexError;
-    use crate::network::SocketError;
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
     use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
+    use common::socket::SocketError;
 
     struct TestDispatcher {
         pub broadcasts: Arc<Mutex<Vec<BroadcastMessage>>>,

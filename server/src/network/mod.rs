@@ -9,30 +9,30 @@ use actix_rt::task::JoinHandle;
 use mockall_double::double;
 
 mod connection;
-pub mod error;
 mod listener;
 pub mod messages;
-mod socket;
-
-pub use error::SocketError;
-pub use socket::ReceivedPacket;
 
 #[double]
 use self::connection::Connection;
 #[double]
 use self::listener::Listener;
 pub use self::messages::*;
-use self::socket::{SocketEnd, SocketSend, Stream};
+#[cfg(test)]
+use common::socket::test_util::MockStream as Stream;
+pub use common::socket::ReceivedPacket;
+#[cfg(not(test))]
+use common::socket::Stream;
+use common::socket::{Packet, SocketEnd, SocketError, SocketSend};
 use common::AHandler;
 
-pub struct ConnectionHandler<A: AHandler<ReceivedPacket>> {
-    connections: HashMap<SocketAddr, Connection<Self>>,
+pub struct ConnectionHandler<A: AHandler<ReceivedPacket<P>>, P: Packet> {
+    connections: HashMap<SocketAddr, Connection<Self, P>>,
     received_handler: Addr<A>,
     join_listener: Option<JoinHandle<()>>,
     bind_to: SocketAddr,
 }
 
-impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> ConnectionHandler<A, P> {
     pub fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
@@ -42,7 +42,7 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
         }
     }
 
-    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self> {
+    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self, P> {
         let bind_to = self.bind_to.ip();
         let connection = self.connections.entry(addr).or_insert_with(move || {
             Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
@@ -51,7 +51,7 @@ impl<A: AHandler<ReceivedPacket>> ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Actor for ConnectionHandler<A, P> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -63,10 +63,10 @@ impl<A: AHandler<ReceivedPacket>> Actor for ConnectionHandler<A> {
 
 // Public messages
 
-impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for ConnectionHandler<A, P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: SendPacket, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: SendPacket<P>, ctx: &mut Context<Self>) -> Self::Result {
         let connection = self.get_connection(ctx.address(), msg.to);
         connection.restart_timeout();
         let socket = connection.get_socket();
@@ -77,7 +77,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<SendPacket> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<Listen> for ConnectionHandler<A, P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, _: Listen, _ctx: &mut Context<Self>) -> Self::Result {
@@ -97,10 +97,12 @@ impl<A: AHandler<ReceivedPacket>> Handler<Listen> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<ReceivedPacket> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<ReceivedPacket<P>>
+    for ConnectionHandler<A, P>
+{
     type Result = ();
 
-    fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ReceivedPacket<P>, _ctx: &mut Context<Self>) -> Self::Result {
         if let Some(conn) = self.connections.get_mut(&msg.addr) {
             conn.restart_timeout();
         }
@@ -111,7 +113,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<ReceivedPacket> for ConnectionHandler<
 
 // Private Messages
 
-impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<AddStream> for ConnectionHandler<A, P> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
@@ -125,7 +127,7 @@ impl<A: AHandler<ReceivedPacket>> Handler<AddStream> for ConnectionHandler<A> {
     }
 }
 
-impl<A: AHandler<ReceivedPacket>> Handler<SocketEnd> for ConnectionHandler<A> {
+impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SocketEnd> for ConnectionHandler<A, P> {
     type Result = ();
 
     fn handle(&mut self, msg: SocketEnd, _ctx: &mut Self::Context) {
@@ -141,31 +143,34 @@ mod tests {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
-    use crate::network::socket::{SocketEnd, Stream};
     use crate::network::{AddStream, Listen, SendPacket};
+    use common::socket::{test_util::MockStream as Stream, SocketEnd};
 
     use super::connection::test::connection_new_context;
     use super::listener::test::listener_new_context;
-    use super::messages::tests::MockTcpStream as TcpStream;
-    use super::socket::{tests::MockSocket as Socket, ReceivedPacket};
     use super::Listener;
     use super::{Connection, ConnectionHandler};
+    use common::socket::Packet;
+    use common::socket::{
+        test_util::{MockSocket as Socket, MockTcpStream as TcpStream},
+        ReceivedPacket,
+    };
 
-    pub struct Receiver {
-        pub received: Arc<Mutex<Vec<ReceivedPacket>>>,
+    pub struct Receiver<P: Packet> {
+        pub received: Arc<Mutex<Vec<ReceivedPacket<P>>>>,
     }
-    impl Actor for Receiver {
+    impl<P: Packet> Actor for Receiver<P> {
         type Context = Context<Self>;
     }
-    impl Handler<ReceivedPacket> for Receiver {
+    impl<P: Packet> Handler<ReceivedPacket<P>> for Receiver<P> {
         type Result = ();
 
-        fn handle(&mut self, msg: ReceivedPacket, _ctx: &mut Self::Context) {
+        fn handle(&mut self, msg: ReceivedPacket<P>, _ctx: &mut Self::Context) {
             self.received.lock().unwrap().push(msg);
         }
     }
 
-    type CH = ConnectionHandler<Receiver>;
+    type CH = ConnectionHandler<Receiver<Vec<u8>>, Vec<u8>>;
     macro_rules! local {
         () => {
             SocketAddr::from(([127, 0, 0, 1], 25000))
@@ -191,10 +196,10 @@ mod tests {
         sys.block_on(async move {
             let socket = socket.start();
             let receiver = receiver.start();
-            let mut conn: Connection<CH> = Connection::default();
+            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_get_socket().times(1).return_const(socket);
-            let guard = connection_new_context::<CH>();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
@@ -275,10 +280,10 @@ mod tests {
         sys.block_on(async move {
             let socket = socket.start();
             let receiver = receiver.start();
-            let mut conn: Connection<CH> = Connection::default();
+            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_get_socket().times(2).return_const(socket);
-            let guard = connection_new_context::<CH>();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
@@ -343,10 +348,10 @@ mod tests {
         sys.block_on(async move {
             let socket = socket.start();
             let receiver = receiver.start();
-            let mut conn: Connection<CH> = Connection::default();
+            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_get_socket().times(1).return_const(socket); // Only one send
-            let guard = connection_new_context::<CH>();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
@@ -406,10 +411,10 @@ mod tests {
         sys.block_on(async move {
             let socket = socket.start();
             let receiver = receiver.start();
-            let mut conn: Connection<CH> = Connection::default();
+            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_get_socket().times(1).return_const(socket);
-            let guard = connection_new_context::<CH>();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
@@ -448,8 +453,8 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let conn: Connection<CH> = Connection::default();
-            let guard = connection_new_context::<CH>();
+            let conn: Connection<CH, Vec<u8>> = Connection::default();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
@@ -501,13 +506,13 @@ mod tests {
             let socket = socket.start();
             let socket_1 = socket_1.start();
             let receiver = receiver.start();
-            let mut conn: Connection<CH> = Connection::default();
+            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_get_socket().times(1).return_const(socket);
-            let mut conn_1: Connection<CH> = Connection::default();
+            let mut conn_1: Connection<CH, Vec<u8>> = Connection::default();
             conn_1.expect_restart_timeout().times(1).return_const(());
             conn_1.expect_get_socket().times(1).return_const(socket_1);
-            let guard = connection_new_context::<CH>();
+            let guard = connection_new_context::<CH, Vec<u8>>();
             let handler = ConnectionHandler::new(receiver, local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn, conn_1];
@@ -558,7 +563,7 @@ mod tests {
     fn test_bind_listener() {
         let sys = System::new();
         let received = Arc::new(Mutex::new(Vec::new()));
-        let receiver = Receiver {
+        let receiver: Receiver<Vec<u8>> = Receiver {
             received: received.clone(),
         };
 
@@ -593,7 +598,7 @@ mod tests {
     fn test_listener_failed() {
         let sys = System::new();
         let received = Arc::new(Mutex::new(Vec::new()));
-        let receiver = Receiver {
+        let receiver: Receiver<Vec<u8>> = Receiver {
             received: received.clone(),
         };
 

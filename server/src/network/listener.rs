@@ -1,20 +1,20 @@
 use std::io;
 
-#[cfg(test)]
-use self::test::MockTcpListener as TcpListener;
 use actix::Addr;
 #[cfg(not(test))]
 use actix_rt::net::TcpListener;
+#[cfg(test)]
+use common::socket::test_util::MockTcpListener as TcpListener;
 use common::AHandler;
 use tokio::{
     net::ToSocketAddrs,
     task::{spawn, JoinHandle},
 };
 
+use super::AddStream;
+use common::socket::SocketError;
 #[cfg(test)]
 use mockall::automock;
-
-use super::{error::SocketError, AddStream};
 
 pub struct Listener {
     listener: TcpListener,
@@ -50,19 +50,8 @@ impl Listener {
 #[cfg(test)]
 pub mod test {
     use super::{MockListener as Listener, __mock_MockListener};
-    use crate::network::messages::tests::MockTcpStream as TcpStream;
-    use mockall::{lazy_static, mock};
+    use mockall::lazy_static;
     use std::sync::{Mutex, MutexGuard};
-    use std::{io, net::SocketAddr};
-    use tokio::net::ToSocketAddrs;
-
-    mock! {
-        pub TcpListener {
-            pub async fn accept(&mut self) -> io::Result<(TcpStream, SocketAddr)>;
-            pub fn local_addr(&self) -> io::Result<SocketAddr>;
-            pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self>;
-        }
-    }
 
     // ver https://github.com/asomers/mockall/blob/master/mockall/examples/synchronization.rs
     lazy_static! {

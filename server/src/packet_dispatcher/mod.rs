@@ -21,12 +21,12 @@ use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePa
 pub mod messages;
 pub mod packet;
 
-pub trait TCPActorTrait: AHandler<SendPacket> {}
+pub trait TCPActorTrait: AHandler<SendPacket<Packet>> {}
 
-impl<A: AHandler<ReceivedPacket>> TCPActorTrait for ConnectionHandler<A> {}
+impl<A: AHandler<ReceivedPacket<Packet>>> TCPActorTrait for ConnectionHandler<A, Packet> {}
 
 pub trait PacketDispatcherTrait:
-    AHandler<ReceivedPacket>
+    AHandler<ReceivedPacket<Packet>>
     + AHandler<BroadcastMessage>
     + AHandler<PruneMessage>
     + AHandler<SendMessage>
@@ -41,7 +41,7 @@ pub(crate) const SERVERS: [ServerId; 3] =
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
-    socket: Addr<ConnectionHandler<Self>>,
+    socket: Addr<ConnectionHandler<Self, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
     // TODO: Replace with a proper data structure containing
     // TODO: every user and their amount of points
@@ -161,8 +161,8 @@ impl PacketDispatcher {
     fn send_data(
         &mut self,
         to: ServerId,
-        data: Vec<u8>,
-    ) -> Request<ConnectionHandler<PacketDispatcher>, SendPacket> {
+        data: Packet,
+    ) -> Request<ConnectionHandler<PacketDispatcher, Packet>, SendPacket<Packet>> {
         self.socket.send(SendPacket {
             to: to.into(),
             data,

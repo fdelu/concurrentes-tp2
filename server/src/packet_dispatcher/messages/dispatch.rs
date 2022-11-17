@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use actix::prelude::*;
 
 use crate::dist_mutex::packets::get_timestamp;
@@ -8,13 +6,13 @@ use crate::network::ReceivedPacket;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::PacketDispatcher;
 
-impl Handler<ReceivedPacket> for PacketDispatcher {
+impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
     type Result = ();
 
-    fn handle(&mut self, msg: ReceivedPacket, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: ReceivedPacket<Packet>, ctx: &mut Self::Context) {
         let origin_addr = msg.addr;
 
-        let packet: Packet = serde_json::from_reader(Cursor::new(msg.data)).unwrap();
+        let packet: Packet = msg.data;
 
         self.servers_last_seen
             .insert(origin_addr.into(), Some(get_timestamp()));
