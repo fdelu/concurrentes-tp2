@@ -1,10 +1,12 @@
-use actix::prelude::*;
 use std::collections::HashSet;
+
+use actix::prelude::*;
+
+use common::AHandler;
 
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::two_phase_commit::{CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
 use crate::ServerId;
-use common::AHandler;
 
 #[derive(Message)]
 #[rtype(result = "CommitResult<()>")]
@@ -17,7 +19,7 @@ pub struct VoteYesMessage {
 impl<P: AHandler<BroadcastMessage>> Handler<VoteYesMessage> for TwoPhaseCommit<P> {
     type Result = CommitResult<()>;
 
-    fn handle(&mut self, msg: VoteYesMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: VoteYesMessage, ctx: &mut Self::Context) -> Self::Result {
         println!(
             "{} Received vote yes from {} for {}",
             self, msg.from, msg.id
@@ -31,7 +33,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<VoteYesMessage> for TwoPhaseCommit<P
 
         if confirmed_servers.is_superset(&msg.connected_servers) {
             self.logs.insert(msg.id, TransactionState::Commit);
-            self.commit_transaction(msg.id);
+            self.commit_transaction(msg.id, ctx);
             self.broadcast_commit(msg.id);
         }
         Ok(())

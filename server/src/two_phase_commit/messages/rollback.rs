@@ -10,13 +10,13 @@ pub struct RollbackMessage {
 impl<P: Actor> Handler<RollbackMessage> for TwoPhaseCommit<P> {
     type Result = ();
 
-    fn handle(&mut self, msg: RollbackMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RollbackMessage, ctx: &mut Self::Context) -> Self::Result {
         println!("{} Received rollback for {}", self, msg.id);
         self.stakeholder_timeouts
             .remove(&msg.id)
             .map(|tx| tx.send(()));
 
         self.logs.insert(msg.id, TransactionState::Abort);
-        self.abort_transaction(msg.id);
+        self.abort_transaction(msg.id, ctx);
     }
 }

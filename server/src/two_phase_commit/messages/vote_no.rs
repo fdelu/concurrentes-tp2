@@ -15,14 +15,14 @@ pub struct VoteNoMessage {
 impl<P: AHandler<BroadcastMessage>> Handler<VoteNoMessage> for TwoPhaseCommit<P> {
     type Result = CommitResult<()>;
 
-    fn handle(&mut self, msg: VoteNoMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: VoteNoMessage, ctx: &mut Self::Context) -> Self::Result {
         println!("{} Received vote no from {} for {}", self, msg.from, msg.id);
         self.stakeholder_timeouts
             .remove(&msg.id)
             .map(|tx| tx.send(()));
 
         self.logs.insert(msg.id, TransactionState::Abort);
-        self.abort_transaction(msg.id);
+        self.abort_transaction(msg.id, ctx);
 
         self.broadcast_rollback(msg.id);
         Ok(())

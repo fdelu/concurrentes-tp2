@@ -42,7 +42,7 @@ impl PreparePacket {
     pub fn new(transaction: Transaction) -> Self {
         // TODO: Avoid randomness
         let id = rand::thread_rng().gen();
-
+        println!("New transaction with id: {} - {:?}", id, transaction);
         Self { id, transaction }
     }
 }

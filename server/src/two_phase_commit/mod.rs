@@ -1,4 +1,15 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::time::Duration;
+
+use actix::prelude::*;
+use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
+
+use common::AHandler;
+
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
+use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::ClientId;
@@ -7,17 +18,11 @@ use crate::two_phase_commit::packets::{
     VoteYesPacket,
 };
 use crate::ServerId;
-use actix::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use tokio::sync::oneshot;
-
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use common::AHandler;
 
 pub mod messages;
 pub mod packets;
+
+const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
 
 pub type TransactionId = u32;
 
@@ -30,54 +35,32 @@ pub enum TransactionState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientData {
     pub points: u32,
-    pub blocked_points: Vec<(TransactionId, Timestamp, u32)>,
+    pub blocked_points: HashMap<TransactionId, u32>,
 }
 
-const INITIAL_DATABASE: [(ClientId, ClientData); 5] = [
-    (
-        1u32,
-        ClientData {
-            points: 100,
-            blocked_points: vec![],
-        },
-    ),
-    (
-        2u32,
-        ClientData {
-            points: 100,
-            blocked_points: vec![],
-        },
-    ),
-    (
-        3u32,
-        ClientData {
-            points: 100,
-            blocked_points: vec![],
-        },
-    ),
-    (
-        4u32,
-        ClientData {
-            points: 100,
-            blocked_points: vec![],
-        },
-    ),
-    (
-        5u32,
-        ClientData {
-            points: 100,
-            blocked_points: vec![],
-        },
-    ),
-];
+pub fn make_initial_database() -> HashMap<ClientId, ClientData> {
+    let mut database = HashMap::new();
+    for client_id in 0..10 {
+        database.insert(
+            client_id,
+            ClientData {
+                points: 100,
+                blocked_points: HashMap::new(),
+            },
+        );
+    }
+    database
+}
 
 pub struct TwoPhaseCommit<P: Actor> {
     logs: HashMap<TransactionId, TransactionState>,
     stakeholder_timeouts: HashMap<TransactionId, oneshot::Sender<()>>,
     coordinator_timeouts: HashMap<TransactionId, oneshot::Sender<bool>>,
+    blocked_points_timeouts: HashMap<TransactionId, SpawnHandle>,
     confirmations: HashMap<TransactionId, HashSet<ServerId>>,
     dispatcher: Addr<P>,
     database: HashMap<ClientId, ClientData>,
+    database_last_update: Timestamp,
     transactions: HashMap<TransactionId, Transaction>,
 }
 
@@ -106,9 +89,11 @@ impl<P: Actor> TwoPhaseCommit<P> {
             logs,
             stakeholder_timeouts: HashMap::new(),
             coordinator_timeouts: HashMap::new(),
+            blocked_points_timeouts: HashMap::new(),
             confirmations: HashMap::new(),
             dispatcher,
-            database: INITIAL_DATABASE.into(),
+            database: make_initial_database(),
+            database_last_update: get_timestamp(),
             transactions: HashMap::new(),
         }
     }
@@ -129,9 +114,13 @@ impl<P: Actor> TwoPhaseCommit<P> {
                             amount,
                         },
                     );
+                    println!("Voting yes for transaction {} because client {} has enough points to block", id, client_id);
                     true
                 } else {
-                    // Error, VoteNo
+                    println!(
+                        "Voting no for transaction {} because client {} has not enough points",
+                        id, client_id
+                    );
                     false
                 }
             }
@@ -177,7 +166,24 @@ impl<P: Actor> TwoPhaseCommit<P> {
         }
     }
 
-    fn commit_transaction(&mut self, id: TransactionId) {
+    fn set_timeout_for_blocked_points(
+        &mut self,
+        id: TransactionId,
+        of: ClientId,
+        ctx: &mut Context<Self>,
+    ) {
+        let handle = ctx.run_later(MAX_POINT_BLOCKING_TIME, move |me, _| {
+            println!(
+                "{} Timeout while waiting for discount points of transaction {}, unblocking them",
+                me, id
+            );
+            me.database.get_mut(&of).unwrap().blocked_points.remove(&id);
+        });
+        self.blocked_points_timeouts.insert(id, handle);
+    }
+
+    fn commit_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
+        self.database_last_update = get_timestamp();
         match self.transactions.get(&id) {
             Some(Transaction::Block {
                 id: client_id,
@@ -186,9 +192,8 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 let client_data = self.database.get_mut(client_id).unwrap();
                 if client_data.points >= *amount {
                     client_data.points -= *amount;
-                    client_data
-                        .blocked_points
-                        .push((id, get_timestamp(), *amount));
+                    client_data.blocked_points.insert(id, *amount);
+                    self.set_timeout_for_blocked_points(id, *client_id, ctx);
                 } else {
                     // This should never happen because I check that client has enough points before
                     // voting yes
@@ -209,9 +214,9 @@ impl<P: Actor> TwoPhaseCommit<P> {
                         amount: _,
                     }) => {
                         let client_data = self.database.get_mut(client_id).unwrap();
-                        client_data
-                            .blocked_points
-                            .retain(|(transaction_id, _, _)| *transaction_id != id);
+                        client_data.blocked_points.remove(&id);
+                        let h = self.blocked_points_timeouts.remove(&id).unwrap();
+                        ctx.cancel_future(h);
                     }
                     _ => panic!("Invalid transaction"),
                 }
@@ -219,19 +224,21 @@ impl<P: Actor> TwoPhaseCommit<P> {
             }
             _ => panic!("Invalid transaction"),
         }
+        println!("Database: {:#?}", self.database);
     }
 
-    fn abort_transaction(&mut self, id: TransactionId) {
+    fn abort_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
         if let Some(Transaction::Block {
             id: client_id,
             amount,
         }) = self.transactions.remove(&id)
         {
             let client_data = self.database.get_mut(&client_id).unwrap();
-            client_data
-                .blocked_points
-                .retain(|(transaction_id, _, _)| *transaction_id != id);
+            client_data.blocked_points.remove(&id);
             client_data.points += amount;
+            if let Some(h) = self.blocked_points_timeouts.remove(&id) {
+                ctx.cancel_future(h);
+            }
         }
     }
 }

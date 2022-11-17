@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use crate::dist_mutex::packets::{MutexPacket, Timestamp};
 use crate::packet_dispatcher::ClientId;
@@ -13,7 +14,7 @@ pub struct SyncRequestPacket {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncResponsePacket {
-    // TODO: use clients info
+    pub snapshot_from: Timestamp,
     pub database: HashMap<ClientId, ClientData>,
 }
 

@@ -17,12 +17,14 @@ use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
 use crate::two_phase_commit::messages::commit::CommitMessage;
+use crate::two_phase_commit::messages::forward_database::ForwardDatabaseMessage;
 use crate::two_phase_commit::messages::prepare::PrepareMessage;
 use crate::two_phase_commit::messages::rollback::RollbackMessage;
+use crate::two_phase_commit::messages::update_database::UpdateDatabaseMessage;
 use crate::two_phase_commit::messages::vote_no::VoteNoMessage;
 use crate::two_phase_commit::messages::vote_yes::VoteYesMessage;
 use crate::two_phase_commit::packets::TwoPhaseCommitPacket;
-use crate::two_phase_commit::TwoPhaseCommit;
+use crate::two_phase_commit::{make_initial_database, TwoPhaseCommit};
 
 pub mod messages;
 pub mod packet;
@@ -68,10 +70,17 @@ impl PacketDispatcher {
         Self::create(|ctx| {
             let socket = ConnectionHandler::new(ctx.address(), SocketAddr::from(my_id)).start();
             let two_phase_commit = TwoPhaseCommit::new(ctx.address()).start();
+            let mutexes = make_initial_database()
+                .iter()
+                .map(|(&client_id, _)| {
+                    let mutex = DistMutex::new(my_id, client_id, ctx.address()).start();
+                    (client_id, mutex)
+                })
+                .collect();
 
             let mut ret = Self {
                 server_id: my_id,
-                mutexes: HashMap::new(),
+                mutexes,
                 socket,
                 servers_last_seen,
                 two_phase_commit,
@@ -168,28 +177,23 @@ impl PacketDispatcher {
         _packet: SyncRequestPacket,
         _ctx: &mut Context<Self>,
     ) {
-        unimplemented!(
-            "TODO: Send message to TwoPhaseCommit to send database to {}",
-            from
-        );
-        /*
-        ctx.address()
-            .try_send(SendMessage {
-                to: from,
-                packet: Packet::SyncResponse(packet),
-            })
+        self.two_phase_commit
+            .try_send(ForwardDatabaseMessage { to: from })
             .unwrap();
-         */
     }
 
     fn handle_sync_response(
         &mut self,
         _from: ServerId,
-        _packet: SyncResponsePacket,
+        packet: SyncResponsePacket,
         _ctx: &mut Context<Self>,
     ) {
-        // TODO: If I have already received a sync response from a server, I should not overwrite it
-        // TODO: Send message to TwoPhaseCommit to update database
+        self.two_phase_commit
+            .try_send(UpdateDatabaseMessage {
+                snapshot_from: packet.snapshot_from,
+                database: packet.database,
+            })
+            .unwrap();
     }
 
     fn get_or_create_mutex(

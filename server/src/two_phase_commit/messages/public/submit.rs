@@ -22,6 +22,12 @@ impl<P: AHandler<BroadcastMessage>> Handler<SubmitMessage> for TwoPhaseCommit<P>
     fn handle(&mut self, msg: SubmitMessage, _ctx: &mut Self::Context) -> Self::Result {
         let prepare_packet = PreparePacket::new(msg.transaction);
         let id = prepare_packet.id;
+        if !self.prepare_transaction(id, prepare_packet.transaction) {
+            return Box::pin(async { Ok(false) }.into_actor(self));
+        }
+
+        self.transactions.insert(id, prepare_packet.transaction);
+
         self.broadcast_prepare(prepare_packet);
 
         let (tx, rx) = oneshot::channel();

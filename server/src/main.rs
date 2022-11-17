@@ -1,14 +1,13 @@
 use std::net::SocketAddr;
+
 use tokio::time::sleep;
 use tokio::try_join;
 
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
-use crate::dist_mutex::packets::ResourceId;
 use crate::dist_mutex::server_id::ServerId;
-use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::Listen;
-use crate::packet_dispatcher::messages::add_mutex::AddMutexMessage;
+use crate::packet_dispatcher::messages::public::block_points::BlockPointsMessage;
 use crate::packet_dispatcher::{PacketDispatcher, SERVERS};
 
 pub mod dist_mutex;
@@ -34,40 +33,49 @@ async fn main() {
 
     dispatcher.try_send(Listen {}).unwrap();
 
-    let resource_id_1 = 1;
-    let resource_id_2 = 2;
+    sleep(std::time::Duration::from_millis(5000)).await;
 
-    let mutex_addr_1 = dispatcher
-        .send(AddMutexMessage::new(resource_id_1))
+    dispatcher
+        .send(BlockPointsMessage {
+            client_id: 1,
+            amount: 10,
+        })
         .await
         .unwrap();
 
-    let mutex_addr_2 = dispatcher
-        .send(AddMutexMessage::new(resource_id_2))
+    dispatcher
+        .send(BlockPointsMessage {
+            client_id: 3,
+            amount: 150,
+        })
         .await
         .unwrap();
 
-    sleep(std::time::Duration::from_millis(5000)).await;
+    dispatcher
+        .send(BlockPointsMessage {
+            client_id: 1,
+            amount: 20,
+        })
+        .await
+        .unwrap();
 
-    println!("Acquiring lock");
-    let f1 = mutex_addr_1.send(AcquireMessage::new());
-    let f2 = mutex_addr_2.send(AcquireMessage::new());
-    if try_join!(f1, f2).is_err() {
-        println!("Try join failed");
-    }
+    dispatcher
+        .send(BlockPointsMessage {
+            client_id: 1,
+            amount: 90,
+        })
+        .await
+        .unwrap();
 
-    sleep(std::time::Duration::from_millis(5000)).await;
+    dispatcher
+        .send(BlockPointsMessage {
+            client_id: 4,
+            amount: 100,
+        })
+        .await
+        .unwrap();
 
-    println!("Releasing lock");
+    println!("[main] Done transaction");
 
-    let f1 = mutex_addr_1.send(ReleaseMessage {});
-    let f2 = mutex_addr_2.send(ReleaseMessage {});
-
-    if try_join!(f1, f2).is_err() {
-        println!("Try join failed");
-    }
-
-    println!("Done");
-
-    sleep(std::time::Duration::from_millis(50000)).await;
+    sleep(std::time::Duration::from_secs(600)).await;
 }
