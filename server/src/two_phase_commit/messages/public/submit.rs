@@ -1,11 +1,9 @@
 use actix::prelude::*;
-use crate::ServerId;
-use crate::two_phase_commit::{CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
+use crate::two_phase_commit::{CommitResult, TransactionState, TwoPhaseCommit};
 
 use common::AHandler;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::two_phase_commit::packets::prepare::PreparePacket;
+use crate::two_phase_commit::packets::PreparePacket;
 
 #[derive(Message)]
 #[rtype(result = "CommitResult<()>")]
@@ -32,7 +30,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<SubmitMessage> for TwoPhaseCommit<P>
             },
         }
         async move {
-
+            Ok(())
         }.into_actor(self).boxed_local()
     }
 }
