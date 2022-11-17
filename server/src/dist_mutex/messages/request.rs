@@ -1,11 +1,11 @@
-use crate::dist_mutex::messages::Timestamp;
-use crate::dist_mutex::packets::{AckPacket, OkPacket, RequestPacket};
-use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
-use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::packet_dispatcher::packet::PacketType;
 use actix::prelude::*;
 
 use common::AHandler;
+
+use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket, Timestamp};
+use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
+use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::packet::Packet;
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -18,7 +18,7 @@ impl RequestMessage {
     pub fn new(from: ServerId, packet: RequestPacket) -> Self {
         Self {
             from,
-            timestamp: packet.timestamp(),
+            timestamp: packet.timestamp,
         }
     }
 }
@@ -28,12 +28,11 @@ fn send_ack<P: AHandler<SendMessage>>(
     requester: ServerId,
     resource_id: ResourceId,
 ) {
-    let packet = AckPacket::new(resource_id);
+    let packet = AckPacket { id: resource_id };
     dispatcher
         .try_send(SendMessage {
             to: requester,
-            data: packet.into(),
-            packet_type: PacketType::Mutex,
+            packet: Packet::Mutex(MutexPacket::Ack(packet)),
         })
         .unwrap();
 }
@@ -43,12 +42,11 @@ fn send_ok<P: AHandler<SendMessage>>(
     requester: ServerId,
     resource_id: ResourceId,
 ) {
-    let packet = OkPacket::new(resource_id);
+    let packet = OkPacket { id: resource_id };
     dispatcher
         .try_send(SendMessage {
             to: requester,
-            data: packet.into(),
-            packet_type: PacketType::Mutex,
+            packet: Packet::Mutex(MutexPacket::Ok(packet)),
         })
         .unwrap();
 }

@@ -5,7 +5,6 @@ use tokio::time;
 
 use common::AHandler;
 
-use crate::dist_mutex::messages::Timestamp;
 use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use crate::dist_mutex::MutexError::Mailbox;
 use crate::dist_mutex::{
@@ -13,7 +12,7 @@ use crate::dist_mutex::{
 };
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
-use crate::packet_dispatcher::packet::PacketType;
+use crate::packet_dispatcher::packet::Packet;
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
@@ -38,17 +37,15 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
 
     fn handle(&mut self, _: AcquireMessage, _: &mut Self::Context) -> Self::Result {
         self.clean_state();
-        let timestamp = Timestamp::new();
+        let packet = RequestPacket::new(self.id);
+        let timestamp = packet.timestamp;
 
-        {
-            let packet = MutexPacket::Request(RequestPacket::new(self.id, timestamp));
-            self.dispatcher
-                .try_send(BroadcastMessage {
-                    data: packet.into(),
-                    packet_type: PacketType::Mutex,
-                })
-                .unwrap();
-        }
+        self.dispatcher
+            .try_send(BroadcastMessage {
+                packet: Packet::Mutex(MutexPacket::Request(packet)),
+            })
+            .unwrap();
+
         self.lock_timestamp = Some(timestamp);
 
         self.queue.push((timestamp, self.server_id));
@@ -153,12 +150,13 @@ mod tests {
     use crate::dist_mutex::messages::ack::AckMessage;
     use crate::dist_mutex::messages::ok::OkMessage;
     use crate::dist_mutex::packets::{AckPacket, OkPacket};
+    use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::MutexError;
-    use crate::network::SocketError;
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
-    use crate::packet_dispatcher::packet::PacketType;
-    use crate::{AcquireMessage, DistMutex, MutexCreationTrait, ResourceId, ServerId};
+    use crate::packet_dispatcher::packet::Packet;
+    use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
+    use common::socket::SocketError;
 
     struct TestDispatcher {
         pub broadcasts: Arc<Mutex<Vec<BroadcastMessage>>>,
@@ -198,8 +196,8 @@ mod tests {
             prunes: prunes.clone(),
         };
         let dispatcher_addr = dispatcher.start();
-        let resource_id = ResourceId::new(1);
-        let server_id = ServerId::new(1);
+        let resource_id = 1;
+        let server_id = ServerId { id: 1 };
         let mutex = DistMutex::new(server_id, resource_id, dispatcher_addr);
         let mutex_addr = mutex.start();
         (mutex_addr, broadcasts, prunes)
@@ -212,7 +210,10 @@ mod tests {
 
         let broadcasts = dispatcher.lock().unwrap();
         assert_eq!(broadcasts.len(), 1);
-        assert_eq!(broadcasts[0].packet_type, PacketType::Mutex);
+        if let Packet::Mutex(_) = broadcasts[0].packet {
+        } else {
+            panic!("Wrong packet type");
+        }
 
         System::current().stop();
     }
@@ -231,11 +232,11 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(3);
 
-        let resource_id = ResourceId::new(1);
-        let packet = AckPacket::new(resource_id);
+        let resource_id = 1;
+        let packet = AckPacket { id: resource_id };
 
         let ack = AckMessage::new(another_server_id, packet);
-        let ok_packet = OkPacket::new(resource_id);
+        let ok_packet = OkPacket { id: resource_id };
         let connected_servers = HashSet::from([another_server_id]);
         let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
 
@@ -251,8 +252,8 @@ mod tests {
     async fn test_acquire_with_ack_but_no_ok_returns_timeout() {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(2);
-        let resource_id = ResourceId::new(1);
-        let packet = AckPacket::new(resource_id);
+        let resource_id = 1;
+        let packet = AckPacket { id: resource_id };
         let ack = AckMessage::new(another_server_id, packet);
 
         let result = mutex.send(AcquireMessage::new());
@@ -269,10 +270,10 @@ mod tests {
         let server_id_2 = ServerId::new(2);
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let resource_id = ResourceId::new(1);
+        let resource_id = 1;
 
-        let ack = AckMessage::new(server_id_1, AckPacket::new(resource_id));
-        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket::new(resource_id));
+        let ack = AckMessage::new(server_id_1, AckPacket { id: resource_id });
+        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket { id: resource_id });
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -288,10 +289,10 @@ mod tests {
         let server_id_2 = ServerId::new(2);
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let resource_id = ResourceId::new(1);
+        let resource_id = 1;
 
-        let ack = AckMessage::new(server_id_1, AckPacket::new(resource_id));
-        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket::new(resource_id));
+        let ack = AckMessage::new(server_id_1, AckPacket { id: resource_id });
+        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket { id: resource_id });
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -309,10 +310,10 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(3);
 
-        let resource_id = ResourceId::new(1);
-        let packet = AckPacket::new(resource_id);
+        let resource_id = 1;
+        let packet = AckPacket { id: resource_id };
         let ack = AckMessage::new(another_server_id, packet);
-        let ok_packet = OkPacket::new(resource_id);
+        let ok_packet = OkPacket { id: resource_id };
         let connected_servers = HashSet::from([another_server_id]);
         let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
 

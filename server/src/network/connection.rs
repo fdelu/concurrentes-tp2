@@ -1,22 +1,22 @@
 use std::net::SocketAddr;
 
 use actix::{Actor, Addr};
-use common::AHandler;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
 };
 
 #[cfg(test)]
-use super::socket::tests::MockSocket as Socket;
+use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
+use common::socket::{Packet, ReceivedPacket, SocketEnd};
 #[cfg(not(test))]
-use super::socket::Socket;
-use super::socket::{ReceivedPacket, SocketEnd, Stream};
+use common::socket::{Socket, Stream};
+use common::AHandler;
 #[cfg(test)]
 use mockall::automock;
 
-pub struct Connection<A: AHandler<SocketEnd>> {
-    socket: Addr<Socket>,
+pub struct Connection<A: AHandler<SocketEnd>, P: Packet> {
+    socket: Addr<Socket<P>>,
     cancel_task: Option<JoinHandle<()>>,
     end_handler: Addr<A>,
     addr: SocketAddr,
@@ -25,8 +25,8 @@ pub struct Connection<A: AHandler<SocketEnd>> {
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[cfg_attr(test, automock)]
-impl<A: AHandler<SocketEnd>> Connection<A> {
-    pub fn new<B: AHandler<ReceivedPacket>>(
+impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
+    pub fn new<B: AHandler<ReceivedPacket<P>>>(
         end_handler: Addr<A>,
         received_handler: Addr<B>,
         addr: SocketAddr,
@@ -59,14 +59,14 @@ impl<A: AHandler<SocketEnd>> Connection<A> {
         }));
     }
 
-    pub fn get_socket(&self) -> Addr<Socket> {
+    pub fn get_socket(&self) -> Addr<Socket<P>> {
         self.socket.clone()
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use crate::network::socket::SocketEnd;
+    use common::socket::{Packet, SocketEnd};
 
     use super::MockConnection as Connection;
     use common::AHandler;
@@ -89,13 +89,13 @@ pub mod test {
 
     /// Guard de [connection_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard<A: AHandler<SocketEnd>> {
-        pub ctx: __mock_MockConnection::__new::Context<A>,
+    pub struct Guard<A: AHandler<SocketEnd>, P: Packet> {
+        pub ctx: __mock_MockConnection::__new::Context<A, P>,
         guard: MutexGuard<'static, ()>,
     }
 
     /// Función de utilidad para mockear la [Connection].
-    pub fn connection_new_context<A: AHandler<SocketEnd> + Send>() -> Guard<A> {
+    pub fn connection_new_context<A: AHandler<SocketEnd> + Send, P: Packet>() -> Guard<A, P> {
         let m = get_lock(&MTX);
 
         let context = Connection::new_context();

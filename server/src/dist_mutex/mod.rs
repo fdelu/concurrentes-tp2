@@ -3,7 +3,8 @@ use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
-use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::packets::{ResourceId, Timestamp};
+use crate::dist_mutex::server_id::ServerId;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use actix::prelude::*;
 use common::AHandler;
@@ -16,6 +17,7 @@ use crate::packet_dispatcher::PacketDispatcherTrait;
 pub mod impl_traits;
 pub mod messages;
 pub mod packets;
+pub mod server_id;
 
 #[cfg(not(test))]
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
@@ -38,28 +40,6 @@ pub struct DistMutex<P: Actor> {
     ack_received: HashSet<ServerId>,
     ok_received: HashSet<ServerId>,
     all_oks_received_channel: Option<oneshot::Sender<()>>,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ResourceId {
-    id: u32,
-}
-
-impl ResourceId {
-    pub fn new(id: u32) -> Self {
-        Self { id }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ServerId {
-    pub id: u16,
-}
-
-impl ServerId {
-    pub fn new(id: u16) -> Self {
-        Self { id }
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]

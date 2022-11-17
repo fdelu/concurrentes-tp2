@@ -2,3 +2,6 @@
 mod message_handler;
 #[cfg(feature = "message_handler")]
 pub use message_handler::AHandler;
+
+#[cfg(feature = "socket")]
+pub mod socket;

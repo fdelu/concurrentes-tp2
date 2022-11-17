@@ -4,19 +4,20 @@ use actix::Message;
 #[cfg(not(test))]
 use actix_rt::net::TcpStream;
 #[cfg(test)]
-use tests::MockTcpStream as TcpStream;
+use common::socket::test_util::MockTcpStream as TcpStream;
+use serde::Serialize;
 
-use crate::network::error::SocketError;
+use common::socket::SocketError;
 
 // Public messages
 
-pub use crate::network::socket::ReceivedPacket;
+pub use common::socket::ReceivedPacket;
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "Result<(), SocketError>")]
-pub struct SendPacket {
+pub struct SendPacket<T: Serialize> {
     pub to: SocketAddr,
-    pub data: Vec<u8>,
+    pub data: T,
 }
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
@@ -30,19 +31,4 @@ pub struct Listen {}
 pub(crate) struct AddStream {
     pub addr: SocketAddr,
     pub stream: TcpStream,
-}
-
-#[cfg(test)]
-pub mod tests {
-    use std::{io, net::SocketAddr};
-
-    use mockall::mock;
-    use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-
-    mock! {
-        pub TcpStream {
-            pub async fn connect(addr: SocketAddr) -> io::Result<Self>;
-            pub fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf);
-        }
-    }
 }

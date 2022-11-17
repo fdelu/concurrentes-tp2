@@ -1,37 +1,36 @@
-use crate::dist_mutex::messages::Timestamp;
 use actix::prelude::*;
 
-use crate::dist_mutex::packets::MutexPacket;
+use crate::dist_mutex::packets::get_timestamp;
+use crate::dist_mutex::server_id::ServerId;
 use crate::network::ReceivedPacket;
-use crate::packet_dispatcher::packet::PacketType;
+use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::PacketDispatcher;
 
-impl Handler<ReceivedPacket> for PacketDispatcher {
+impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
     type Result = ();
 
-    fn handle(&mut self, msg: ReceivedPacket, ctx: &mut Self::Context) {
-        let mut data = msg.data;
+    fn handle(&mut self, msg: ReceivedPacket<Packet>, ctx: &mut Self::Context) {
+        let origin_addr = msg.addr;
+
+        let packet: Packet = msg.data;
 
         self.servers_last_seen
-            .insert(msg.addr.into(), Some(Timestamp::new()));
+            .insert(origin_addr.into(), Some(get_timestamp()));
 
-        let packet_type: PacketType = data.remove(0).try_into().unwrap();
-
-        match packet_type {
-            PacketType::Mutex => {
-                let packet = MutexPacket::try_from(data).unwrap();
-                self.handle_mutex(msg.addr.into(), packet, ctx);
+        match packet {
+            Packet::Mutex(packet) => {
+                self.handle_mutex(origin_addr.into(), packet, ctx);
             }
-            PacketType::Commit => {
+            Packet::Commit => {
                 unimplemented!("Commit packet not implemented");
             }
-            PacketType::SyncRequest => {
-                println!("Received sync request from {}", msg.addr);
-                self.handle_sync_request(msg.addr.into(), data.try_into().unwrap(), ctx);
+            Packet::SyncRequest(packet) => {
+                println!("Received sync request from {}", ServerId::from(msg.addr));
+                self.handle_sync_request(msg.addr.into(), packet, ctx);
             }
-            PacketType::SyncResponse => {
-                println!("Received sync response from {}", msg.addr);
-                self.handle_sync_response(msg.addr.into(), data.try_into().unwrap(), ctx);
+            Packet::SyncResponse(packet) => {
+                println!("Received sync response from {}", ServerId::from(msg.addr));
+                self.handle_sync_response(msg.addr.into(), packet, ctx);
             }
         }
     }
