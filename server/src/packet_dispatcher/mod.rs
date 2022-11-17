@@ -1,7 +1,6 @@
+use actix::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-
-use actix::prelude::*;
 
 use common::AHandler;
 
@@ -17,11 +16,19 @@ use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
+use crate::two_phase_commit::messages::commit::CommitMessage;
+use crate::two_phase_commit::messages::prepare::PrepareMessage;
+use crate::two_phase_commit::messages::rollback::RollbackMessage;
+use crate::two_phase_commit::messages::vote_no::VoteNoMessage;
+use crate::two_phase_commit::messages::vote_yes::VoteYesMessage;
+use crate::two_phase_commit::packets::TwoPhaseCommitPacket;
+use crate::two_phase_commit::TwoPhaseCommit;
 
 pub mod messages;
 pub mod packet;
 
 pub trait TCPActorTrait: AHandler<SendPacket<Packet>> {}
+pub type ClientId = u32;
 
 impl<A: AHandler<ReceivedPacket<Packet>>> TCPActorTrait for ConnectionHandler<A, Packet> {}
 
@@ -43,9 +50,7 @@ pub struct PacketDispatcher {
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
     socket: Addr<ConnectionHandler<Self, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
-    // TODO: Replace with a proper data structure containing
-    // TODO: every user and their amount of points
-    data: Vec<u32>,
+    two_phase_commit: Addr<TwoPhaseCommit<Self>>,
 }
 
 impl Actor for PacketDispatcher {
@@ -62,12 +67,14 @@ impl PacketDispatcher {
 
         Self::create(|ctx| {
             let socket = ConnectionHandler::new(ctx.address(), SocketAddr::from(my_id)).start();
+            let two_phase_commit = TwoPhaseCommit::new(ctx.address()).start();
+
             let mut ret = Self {
                 server_id: my_id,
                 mutexes: HashMap::new(),
                 socket,
                 servers_last_seen,
-                data: vec![1, 2, 3, 4, 5, 6],
+                two_phase_commit,
             };
             ret.send_sync_request(ctx);
             ret
@@ -111,31 +118,78 @@ impl PacketDispatcher {
         }
     }
 
+    fn handle_commit(
+        &mut self,
+        from: ServerId,
+        packet: TwoPhaseCommitPacket,
+        _ctx: &mut Context<Self>,
+    ) {
+        match packet {
+            TwoPhaseCommitPacket::Prepare(packet) => {
+                let message = PrepareMessage {
+                    from,
+                    id: packet.id,
+                    transaction: packet.transaction,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::Commit(packet) => {
+                let message = CommitMessage {
+                    id: packet.id,
+                    from,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::Rollback(packet) => {
+                let message = RollbackMessage { id: packet.id };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::VoteYes(packet) => {
+                let message = VoteYesMessage {
+                    id: packet.id,
+                    from,
+                    connected_servers: self.get_connected_servers(),
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::VoteNo(packet) => {
+                let message = VoteNoMessage {
+                    id: packet.id,
+                    from,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+        }
+    }
+
     fn handle_sync_request(
         &mut self,
         from: ServerId,
         _packet: SyncRequestPacket,
-        ctx: &mut Context<Self>,
+        _ctx: &mut Context<Self>,
     ) {
-        let packet = SyncResponsePacket {
-            data: self.data.clone(),
-        };
+        unimplemented!(
+            "TODO: Send message to TwoPhaseCommit to send database to {}",
+            from
+        );
+        /*
         ctx.address()
             .try_send(SendMessage {
                 to: from,
                 packet: Packet::SyncResponse(packet),
             })
             .unwrap();
+         */
     }
 
     fn handle_sync_response(
         &mut self,
         _from: ServerId,
-        packet: SyncResponsePacket,
+        _packet: SyncResponsePacket,
         _ctx: &mut Context<Self>,
     ) {
-        // TODO: wait for all servers to respond and then update data based on the majority
-        self.data = packet.data;
+        // TODO: If I have already received a sync response from a server, I should not overwrite it
+        // TODO: Send message to TwoPhaseCommit to update database
     }
 
     fn get_or_create_mutex(

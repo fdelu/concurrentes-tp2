@@ -1,4 +1,5 @@
 use std::time::Duration;
+
 use actix::prelude::*;
 use tokio::sync::oneshot;
 use tokio::time;
@@ -6,8 +7,11 @@ use tokio::time;
 use common::AHandler;
 
 use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::two_phase_commit::packets::Transaction;
+use crate::two_phase_commit::{
+    CommitError, CommitResult, TransactionId, TransactionState, TwoPhaseCommit,
+};
 use crate::ServerId;
-use crate::two_phase_commit::{CommitError, CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
 
 const SLEEP_TIME: Duration = Duration::from_millis(5000);
 
@@ -16,6 +20,7 @@ const SLEEP_TIME: Duration = Duration::from_millis(5000);
 pub struct PrepareMessage {
     pub from: ServerId,
     pub id: TransactionId,
+    pub transaction: Transaction,
 }
 
 impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
@@ -23,28 +28,28 @@ impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
 
     fn handle(&mut self, msg: PrepareMessage, _ctx: &mut Self::Context) -> Self::Result {
         println!("{} Received prepare from {}", self, msg.from);
+
         match self.logs.get(&msg.id) {
             Some(TransactionState::Prepared | TransactionState::Commit) => {
-                println!("{} Sending commit to {}", self, msg.from);
-                // TODO: Send commit
+                self.send_vote_yes(msg.from, msg.id);
             }
             Some(TransactionState::Abort) => {
-                println!("{} Sending abort to {}", self, msg.from);
-                // TODO: Send abort
+                self.send_vote_no(msg.from, msg.id);
             }
             None => {
                 println!("{} Doing transaction", self);
-                // TODO: Do transaction
-
-                // after transaction is done
                 self.logs.insert(msg.id, TransactionState::Prepared);
-                // TODO: Send VoteYes
-
-                // TODO: If there is a reason to abort, send VoteNo instead of VoteYes
+                if self.prepare_transaction(msg.id, msg.transaction) {
+                    self.logs.insert(msg.id, TransactionState::Prepared);
+                    self.send_vote_yes(msg.from, msg.id);
+                } else {
+                    self.logs.insert(msg.id, TransactionState::Abort);
+                    self.send_vote_no(msg.from, msg.id);
+                }
             }
         };
         let (tx, rx) = oneshot::channel();
-        self.timeout_channels.insert(msg.id, tx);
+        self.stakeholder_timeouts.insert(msg.id, tx);
         let transaction_id = msg.id;
 
         async move {
@@ -55,10 +60,15 @@ impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
                 println!("[TwoPhaseCommit] Received commit");
                 Ok(())
             }
-        }.into_actor(self).map(move |r, me, _| {
+        }
+        .into_actor(self)
+        .map(move |r, me, _| {
             if r.is_err() {
                 if let Some(TransactionState::Prepared) = me.logs.get(&transaction_id) {
-                    println!("{} Timeout while waiting for commit for {}", me, transaction_id);
+                    println!(
+                        "{} Timeout while waiting for commit for {}",
+                        me, transaction_id
+                    );
                     me.logs.insert(transaction_id, TransactionState::Abort);
                     Err(CommitError::Timeout)
                 } else {
@@ -67,6 +77,7 @@ impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
             } else {
                 Ok(())
             }
-        }).boxed_local()
+        })
+        .boxed_local()
     }
 }

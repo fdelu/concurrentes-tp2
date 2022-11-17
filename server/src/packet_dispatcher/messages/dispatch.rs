@@ -21,8 +21,8 @@ impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
             Packet::Mutex(packet) => {
                 self.handle_mutex(origin_addr.into(), packet, ctx);
             }
-            Packet::Commit => {
-                unimplemented!("Commit packet not implemented");
+            Packet::Commit(packet) => {
+                self.handle_commit(origin_addr.into(), packet, ctx);
             }
             Packet::SyncRequest(packet) => {
                 println!("Received sync request from {}", ServerId::from(msg.addr));
