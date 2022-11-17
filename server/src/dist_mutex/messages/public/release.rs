@@ -1,11 +1,11 @@
 use actix::prelude::*;
 
-use crate::dist_mutex::packets::OkPacket;
+use common::AHandler;
+
+use crate::dist_mutex::packets::{MutexPacket, OkPacket};
 use crate::dist_mutex::{DistMutex, MutexResult};
 use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::packet_dispatcher::packet::PacketType;
-
-use common::AHandler;
+use crate::packet_dispatcher::packet::Packet;
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
@@ -18,8 +18,7 @@ impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
         let dispatcher = self.dispatcher.clone();
         let id = self.id;
 
-        let packet = OkPacket::new(id);
-        let data: Vec<u8> = packet.into();
+        let packet = OkPacket { id };
 
         let futures: Vec<_> = self
             .queue
@@ -27,9 +26,8 @@ impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
             .filter(|(_, id)| *id != self.server_id)
             .map(|(_, server_id)| {
                 dispatcher.send(SendMessage {
-                    data: data.clone(),
-                    packet_type: PacketType::Mutex,
                     to: *server_id,
+                    packet: Packet::Mutex(MutexPacket::Ok(packet)),
                 })
             })
             .collect();

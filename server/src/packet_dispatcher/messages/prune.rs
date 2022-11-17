@@ -1,4 +1,4 @@
-use crate::dist_mutex::messages::Timestamp;
+use crate::dist_mutex::packets::Timestamp;
 use crate::PacketDispatcher;
 use actix::prelude::*;
 

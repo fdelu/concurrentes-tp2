@@ -24,6 +24,7 @@ impl<P: Actor> Handler<OkMessage> for DistMutex<P> {
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
         println!("{} Received ok from {}", self, msg.from);
+        println!("Connected servers: {:?}", msg.connected_servers);
 
         self.ok_received.insert(msg.from);
 

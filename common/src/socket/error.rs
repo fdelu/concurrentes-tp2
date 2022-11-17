@@ -4,7 +4,7 @@ use std::{
     io,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SocketError {
     message: String,
 }
