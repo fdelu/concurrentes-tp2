@@ -9,15 +9,15 @@ use tokio::sync::oneshot;
 use common::AHandler;
 
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
+use crate::packet_dispatcher::ClientId;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
-use crate::packet_dispatcher::ClientId;
+use crate::ServerId;
 use crate::two_phase_commit::packets::{
     CommitPacket, PreparePacket, RollbackPacket, Transaction, TwoPhaseCommitPacket, VoteNoPacket,
     VoteYesPacket,
 };
-use crate::ServerId;
 
 pub mod messages;
 pub mod packets;
@@ -74,6 +74,7 @@ impl<P: Actor> Display for TwoPhaseCommit<P> {
     }
 }
 
+#[derive(Debug)]
 pub enum CommitError {
     Timeout,
     Disconnected,
@@ -82,23 +83,27 @@ pub enum CommitError {
 pub type CommitResult<T> = Result<T, CommitError>;
 
 impl<P: Actor> TwoPhaseCommit<P> {
-    pub fn new(dispatcher: Addr<P>) -> Self {
+    pub fn new(dispatcher: Addr<P>) -> Addr<Self> {
         let logs = HashMap::new();
-
-        Self {
-            logs,
-            stakeholder_timeouts: HashMap::new(),
-            coordinator_timeouts: HashMap::new(),
-            blocked_points_timeouts: HashMap::new(),
-            confirmations: HashMap::new(),
-            dispatcher,
-            database: make_initial_database(),
-            database_last_update: get_timestamp(),
-            transactions: HashMap::new(),
-        }
+        Self::create(|ctx| {
+            ctx.run_interval(Duration::from_secs(10), |me, _| {
+                println!("Database: {:#?}", me.database);
+            });
+            Self {
+                logs,
+                stakeholder_timeouts: HashMap::new(),
+                coordinator_timeouts: HashMap::new(),
+                blocked_points_timeouts: HashMap::new(),
+                confirmations: HashMap::new(),
+                dispatcher,
+                database: make_initial_database(),
+                database_last_update: 0,
+                transactions: HashMap::new(),
+            }
+        })
     }
 
-    fn prepare_transaction(&mut self, id: TransactionId, transaction: Transaction) -> bool {
+    fn prepare_transaction(&mut self, transaction_id: TransactionId, transaction: Transaction) -> bool {
         match transaction {
             Transaction::Block {
                 id: client_id,
@@ -108,18 +113,18 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 if client_data.points >= amount {
                     // Ok
                     self.transactions.insert(
-                        id,
+                        transaction_id,
                         Transaction::Block {
                             id: client_id,
                             amount,
                         },
                     );
-                    println!("Voting yes for transaction {} because client {} has enough points to block", id, client_id);
+                    println!("Voting yes for transaction {} because client {} has enough points to block", transaction_id, client_id);
                     true
                 } else {
                     println!(
                         "Voting no for transaction {} because client {} has not enough points",
-                        id, client_id
+                        transaction_id, client_id
                     );
                     false
                 }
@@ -129,7 +134,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 amount,
             } => {
                 self.transactions.insert(
-                    id,
+                    transaction_id,
                     Transaction::Increase {
                         id: client_id,
                         amount,
@@ -137,17 +142,20 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 );
                 true
             }
-            Transaction::Discount => {
-                match self.transactions.get(&id) {
+            Transaction::Discount {
+                id: client_id,
+                associated_to
+            } => {
+                match self.transactions.get(&transaction_id) {
                     Some(Transaction::Block {
-                        id: client_id,
-                        amount,
-                    }) => {
+                             id: client_id,
+                             amount,
+                         }) => {
                         let client_data = self.database.get_mut(client_id).unwrap();
                         if client_data.points >= *amount {
                             // Ok
                             self.transactions.insert(
-                                id,
+                                transaction_id,
                                 Transaction::Block {
                                     id: *client_id,
                                     amount: *amount,
@@ -172,12 +180,18 @@ impl<P: Actor> TwoPhaseCommit<P> {
         of: ClientId,
         ctx: &mut Context<Self>,
     ) {
+        if self.blocked_points_timeouts.get(&id).is_some() {
+            return;
+        }
         let handle = ctx.run_later(MAX_POINT_BLOCKING_TIME, move |me, _| {
             println!(
                 "{} Timeout while waiting for discount points of transaction {}, unblocking them",
                 me, id
             );
-            me.database.get_mut(&of).unwrap().blocked_points.remove(&id);
+            let client_data = me.database.get_mut(&of).unwrap();
+            if let Some(amount) = client_data.blocked_points.remove(&id) {
+                client_data.points += amount;
+            }
         });
         self.blocked_points_timeouts.insert(id, handle);
     }
@@ -186,9 +200,9 @@ impl<P: Actor> TwoPhaseCommit<P> {
         self.database_last_update = get_timestamp();
         match self.transactions.get(&id) {
             Some(Transaction::Block {
-                id: client_id,
-                amount,
-            }) => {
+                     id: client_id,
+                     amount,
+                 }) => {
                 let client_data = self.database.get_mut(client_id).unwrap();
                 if client_data.points >= *amount {
                     client_data.points -= *amount;
@@ -201,18 +215,18 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 }
             }
             Some(Transaction::Increase {
-                id: client_id,
-                amount,
-            }) => {
+                     id: client_id,
+                     amount,
+                 }) => {
                 let client_data = self.database.get_mut(client_id).unwrap();
                 client_data.points += amount;
             }
             Some(Transaction::Discount) => {
                 match self.transactions.get(&id) {
                     Some(Transaction::Block {
-                        id: client_id,
-                        amount: _,
-                    }) => {
+                             id: client_id,
+                             amount: _,
+                         }) => {
                         let client_data = self.database.get_mut(client_id).unwrap();
                         client_data.blocked_points.remove(&id);
                         let h = self.blocked_points_timeouts.remove(&id).unwrap();
@@ -229,9 +243,9 @@ impl<P: Actor> TwoPhaseCommit<P> {
 
     fn abort_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
         if let Some(Transaction::Block {
-            id: client_id,
-            amount,
-        }) = self.transactions.remove(&id)
+                        id: client_id,
+                        amount,
+                    }) = self.transactions.remove(&id)
         {
             let client_data = self.database.get_mut(&client_id).unwrap();
             client_data.blocked_points.remove(&id);
@@ -278,3 +292,9 @@ impl<P: AHandler<BroadcastMessage>> TwoPhaseCommit<P> {
         });
     }
 }
+
+pub enum PacketDispatcherError {
+    Timeout,
+}
+
+pub type PacketDispatcherResult<T> = Result<T, PacketDispatcherError>;

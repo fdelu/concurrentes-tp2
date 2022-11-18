@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use common::AHandler;
 
@@ -44,8 +45,8 @@ pub trait PacketDispatcherTrait:
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
-pub(crate) const SERVERS: [ServerId; 3] =
-    [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }];
+pub(crate) const SERVERS: [ServerId; 5] =
+    [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }, ServerId { id: 3 }, ServerId { id: 4 }];
 
 pub struct PacketDispatcher {
     server_id: ServerId,
@@ -69,7 +70,7 @@ impl PacketDispatcher {
 
         Self::create(|ctx| {
             let socket = ConnectionHandler::new(ctx.address(), SocketAddr::from(my_id)).start();
-            let two_phase_commit = TwoPhaseCommit::new(ctx.address()).start();
+            let two_phase_commit = TwoPhaseCommit::new(ctx.address());
             let mutexes = make_initial_database()
                 .iter()
                 .map(|(&client_id, _)| {

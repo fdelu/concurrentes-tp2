@@ -51,5 +51,8 @@ impl PreparePacket {
 pub enum Transaction {
     Block { id: ClientId, amount: u32 },
     Increase { id: ClientId, amount: u32 },
-    Discount,
+    Discount {
+        id: ClientId,
+        associated_to: TransactionId,
+    },
 }

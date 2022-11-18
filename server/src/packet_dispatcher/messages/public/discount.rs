@@ -1,32 +1,32 @@
-use crate::packet_dispatcher::ClientId;
-use crate::two_phase_commit::messages::public::submit::SubmitMessage;
-use crate::two_phase_commit::packets::Transaction;
-use crate::{AcquireMessage, PacketDispatcher};
 use actix::prelude::*;
-use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
+use crate::packet_dispatcher::ClientId;
+use crate::PacketDispatcher;
+use crate::two_phase_commit::packets::Transaction;
+use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
+use crate::two_phase_commit::messages::public::submit::SubmitMessage;
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
-pub struct BlockPointsMessage {
+pub struct DiscountMessage {
     pub client_id: ClientId,
-    pub amount: u32,
+    pub transaction_id: TransactionId,
 }
 
-impl Handler<BlockPointsMessage> for PacketDispatcher {
+impl Handler<DiscountMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, PacketDispatcherResult<()>>;
 
-    fn handle(&mut self, msg: BlockPointsMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let transaction = Transaction::Block {
-                        id: msg.client_id,
-                        amount: msg.amount,
-                    };
+    fn handle(&mut self, msg: DiscountMessage, ctx: &mut Self::Context) -> Self::Result {
+        let transaction = Transaction::Discount {
+            id: msg.client_id,
+            associated_to: msg.transaction_id,
+        };
 
         let mutex = self.mutexes.get_mut(&msg.client_id).unwrap();
         let mutex_c = mutex.clone();
         let tp_commit_addr = self.two_phase_commit.clone();
 
         async move {
-            if mutex_c.send(AcquireMessage {}).await.is_err() {
+            if mutex_c.send(crate::AcquireMessage {}).await.is_err() {
                 println!("Error from mutex");
                 return Err(PacketDispatcherError::Timeout);
             };
@@ -38,7 +38,7 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
                 })
                 .await.unwrap() {
                     Ok(_) => {
-                        println!("Transaction (Block) successful");
+                        println!("Transaction (Discount) successful");
                     }
                     Err(e) => {
                         println!("Transaction failed: {:?}", e);

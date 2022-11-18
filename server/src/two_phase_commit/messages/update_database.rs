@@ -14,17 +14,22 @@ pub struct UpdateDatabaseMessage {
 impl<P: Actor> Handler<UpdateDatabaseMessage> for TwoPhaseCommit<P> {
     type Result = ();
 
-    fn handle(&mut self, msg: UpdateDatabaseMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateDatabaseMessage, ctx: &mut Self::Context) -> Self::Result {
         if msg.snapshot_from > self.database_last_update {
             println!(
                 "Updating database from {} to {}",
                 self.database_last_update, msg.snapshot_from
             );
             self.database_last_update = msg.snapshot_from;
+            msg.database.iter().for_each(|(&id, data)| {
+                data.blocked_points.iter().for_each(|(&transaction_id, &points)| {
+                    self.set_timeout_for_blocked_points(transaction_id, id, ctx);
+                });
+            });
             self.database = msg.database;
         } else {
             println!(
-                "Ignoring database update from {} to {}",
+                "Ignoring database update ({} >= {})",
                 self.database_last_update, msg.snapshot_from
             );
         }

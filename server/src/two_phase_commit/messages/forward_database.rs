@@ -20,7 +20,7 @@ impl<P: AHandler<SendMessage>> Handler<ForwardDatabaseMessage> for TwoPhaseCommi
         self.dispatcher.do_send(SendMessage {
             to: msg.to,
             packet: Packet::SyncResponse(SyncResponsePacket {
-                snapshot_from: get_timestamp(),
+                snapshot_from: self.database_last_update,
                 database: self.database.clone(),
             }),
         });

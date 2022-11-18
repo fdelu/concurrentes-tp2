@@ -61,7 +61,7 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
                 .await
                 .is_err()
             {
-                println!("[Mutex {}] Timeout while waiting for oks", id);
+                println!("[Mutex {}] Timeout while waiting for oks, maybe some server is down", id);
                 Err(MutexError::Timeout)
             } else {
                 println!("[Mutex {}] All oks received", id);
@@ -128,7 +128,7 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
         self.all_oks_received_channel = Some(tx);
         async move {
             if time::timeout(TIME_UNTIL_ERROR, rx).await.is_err() {
-                println!("Timeout while waiting for oks");
+                println!("Timeout while waiting for oks, but seems that some server has the lock");
                 Err(MutexError::Timeout)
             } else {
                 Ok(())
