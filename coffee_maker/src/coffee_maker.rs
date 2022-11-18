@@ -1,13 +1,15 @@
 use crate::order_processor::processor::OrderProcessor;
-use std::{thread, time};
+use std::time;
 extern crate actix;
 use crate::order_processor::processor_messages::{AbortOrder, AddMoney, CommitOrder, PrepareOrder};
-use actix::{Actor, Addr};
+use actix::Addr;
 use rand::Rng;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::str::FromStr;
+
+use tokio::time::sleep;
 use tracing::{debug, error, info};
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -19,14 +21,14 @@ where
 }
 
 ///prepares coffee, the time it takes is random and theres a chance to fail.
-fn prepare_coffee() -> bool {
+async fn prepare_coffee() -> bool {
     let mut rng = rand::thread_rng();
-    thread::sleep(time::Duration::from_millis(rng.gen_range(0..100)));
+    sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
     if rng.gen_range(0..100) < 15 {
         info!("failed preparing coffee");
         return false;
     }
-    thread::sleep(time::Duration::from_millis(rng.gen_range(0..100)));
+    sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
     info!("coffee finshed");
     true
 }
@@ -40,7 +42,7 @@ async fn abort(order_actor: &Addr<OrderProcessor>) {
         Err(error) => {
             error!("actor problem: {:?}", error);
             return;
-        },
+        }
     };
 }
 
@@ -53,7 +55,7 @@ async fn commit(order_actor: &Addr<OrderProcessor>) {
         Err(error) => {
             error!("actor problem: {:?}", error);
             return;
-        },
+        }
     };
 }
 
@@ -73,7 +75,7 @@ async fn sale_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
         Err(error) => {
             error!("actor problem: {:?}", error);
             return;
-        },
+        }
     };
 
     let result = match message {
@@ -81,7 +83,7 @@ async fn sale_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
         Err(error) => {
             error!("message problem: {:?}", error);
             return;
-        },
+        }
     };
 
     if result != *"ready" {
@@ -112,7 +114,7 @@ async fn recharge_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>)
         Err(error) => {
             error!("actor problem: {:?}", error);
             return;
-        },
+        }
     };
 
     let result = match message {
@@ -120,12 +122,12 @@ async fn recharge_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>)
         Err(error) => {
             error!("message problem: {:?}", error);
             return;
-        },
+        }
     };
 
     if result != *"Ok" {
         error!("couldnt recharge order, result was {}", result);
-        return
+        return;
     }
     info!("recharge successfull");
 }

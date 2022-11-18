@@ -1,13 +1,25 @@
+use std::{collections::HashSet, net::SocketAddr};
+
+use actix::{
+    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
+};
+use common::{
+    packet::{TxId, UserId},
+    socket::{ReceivedPacket, SocketEnd, SocketError, SocketSend, Stream},
+};
+use tracing::{error, info, warn};
+
 use super::processor_messages::{AbortOrder, AddMoney, CommitOrder, PrepareOrder};
-use actix::{Actor, Context, Handler};
-use std::io;
-use std::io::prelude::*;
-use std::net::TcpStream;
-use std::time;
+use common::{
+    packet::{ClientPacket, ServerPacket},
+    socket::Socket,
+};
 
 ///Actor para procesar ordenes de cafe
 pub(crate) struct OrderProcessor {
-    server_socket: TcpStream,
+    server_socket: Addr<Socket<ClientPacket, ServerPacket>>,
+    user_id: UserId,
+    active_transactions: HashSet<TxId>,
 }
 
 impl Actor for OrderProcessor {
@@ -16,74 +28,160 @@ impl Actor for OrderProcessor {
 
 impl OrderProcessor {
     ///constructor de OrderProcessor, recive la direccion del servidor y los milisegundos de timeout
-    pub(crate) fn new(server_addr: &str, read_timeout: u64) -> Result<Self, std::io::Error> {
-        let socket = TcpStream::connect(server_addr)?;
-        socket.set_read_timeout(Some(time::Duration::from_millis(read_timeout)))?;
-        Ok(Self {
-            server_socket: socket,
+    pub(crate) fn new(server_addr: SocketAddr, read_timeout: u64) -> Addr<Self> {
+        Self::create(move |ctx| Self {
+            server_socket: Socket::new(ctx.address(), ctx.address(), server_addr, Stream::New())
+                .start(),
+            user_id: 123, // TODO
+            active_transactions: HashSet::new(),
         })
+    }
+
+    fn add_tx_id(&mut self) -> TxId {
+        let mut tx_id = rand::random();
+        while self.active_transactions.contains(&tx_id) {
+            tx_id = rand::random();
+        }
+        self.active_transactions.insert(tx_id);
+        tx_id
+    }
+
+    fn remove_tx_id(&self, tx_id: TxId) -> bool {
+        if !self.active_transactions.remove(&tx_id) {
+            warn!(
+                "Got message from the server for inactive transaction: {}",
+                tx_id
+            );
+            return false;
+        }
+        true
+    }
+
+    fn handle_ready(&mut self, tx_id: TxId) {
+        if self.remove_tx_id(tx_id) {
+            // proceed
+        }
+    }
+
+    fn handle_insufficient(&mut self, tx_id: TxId) {
+        if self.remove_tx_id(tx_id) {
+            info!("Transaction {} canceled: insufficient points", tx_id);
+        }
+    }
+
+    fn handle_server_error(&mut self, tx_id: TxId, error: SocketError) {
+        if self.remove_tx_id(tx_id) {
+            error!("Transaction {} canceled: server error ({})", tx_id, error);
+        }
     }
 }
 
 impl Handler<PrepareOrder> for OrderProcessor {
-    type Result = Result<String, io::Error>;
+    type Result = ResponseActFuture<Self, ()>;
 
-    fn handle(&mut self, msg: PrepareOrder, _ctx: &mut Self::Context) -> Result<String, io::Error> {
-        let _ = self.server_socket.write(&[b'p', msg.user_id, msg.cost])?;
-        let mut buf = [0_u8];
-        let read_res = self.server_socket.read(&mut buf);
-        let bytes_read = match read_res {
-            Ok(v) => v,
-            Err(_) => return Ok(String::from("timeout")),
-        };
-        if bytes_read < 1 {
-            return Ok(String::from("None"));
-        } else if buf[0] == b'i' {
-            return Ok(String::from("insufficient"));
-        } else if buf[0] == b'a' {
-            return Ok(String::from("abort"));
-        } else if buf[0] == b'r' {
-            return Ok(String::from("ready"));
+    fn handle(&mut self, msg: PrepareOrder, _ctx: &mut Self::Context) {
+        let transaction_id = self.add_tx_id();
+        let server_socket = self.server_socket.clone();
+
+        async move {
+            let res = server_socket
+                .send(SocketSend {
+                    data: ClientPacket::PrepareOrder(self.user_id, msg.cost, transaction_id),
+                })
+                .await;
+
+            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+                error!("Error sending PrepareOrder: {}", e);
+            } else {
+                info!("Sent PrepareOrder with transaction id {}", transaction_id);
+            }
         }
-        Ok(String::from("unknown"))
+        .into_actor(self)
+        .boxed_local();
     }
 }
 
 impl Handler<CommitOrder> for OrderProcessor {
-    type Result = Result<String, io::Error>;
+    type Result = ResponseActFuture<Self, ()>;
 
-    fn handle(&mut self, _msg: CommitOrder, _ctx: &mut Self::Context) -> Result<String, io::Error> {
-        let _ = self.server_socket.write(&[b'c'])?;
-        Ok(String::from("sent"))
+    fn handle(&mut self, msg: CommitOrder, _ctx: &mut Self::Context) {
+        let server_socket = self.server_socket.clone();
+
+        async move {
+            let res = server_socket
+                .send(SocketSend {
+                    data: ClientPacket::CommitOrder(msg.transaction_id),
+                })
+                .await;
+
+            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+                error!("Error sending CommitOrder: {}", e);
+            } else {
+                info!(
+                    "Sent CommitOrder with transaction id {}",
+                    msg.transaction_id
+                )
+            }
+        }
+        .into_actor(self)
+        .boxed_local();
     }
 }
 
 impl Handler<AbortOrder> for OrderProcessor {
-    type Result = Result<String, io::Error>;
+    type Result = ();
 
-    fn handle(&mut self, _msg: AbortOrder, _ctx: &mut Self::Context) -> Result<String, io::Error> {
-        let _ = self.server_socket.write(&[b'a'])?;
-        Ok(String::from("sent"))
+    fn handle(&mut self, msg: AbortOrder, _ctx: &mut Self::Context) {
+        warn!("Aborting order with transaction id {}", msg.transaction_id)
     }
 }
 
 impl Handler<AddMoney> for OrderProcessor {
-    type Result = Result<String, io::Error>;
+    type Result = ResponseActFuture<Self, ()>;
 
-    fn handle(&mut self, msg: AddMoney, _ctx: &mut Self::Context) -> Result<String, io::Error> {
-        let _ = self.server_socket.write(&[b'm', msg.user_id, msg.amount])?;
-        let mut buf = [0_u8];
-        let read_res = self.server_socket.read(&mut buf);
-        let bytes_read = match read_res {
-            Ok(v) => v,
-            Err(_) => return Ok(String::from("timeout")),
-        };
-        if bytes_read < 1 {
-            return Ok(String::from("None"));
-        } else if buf[0] == b'o' {
-            return Ok(String::from("Ok"));
+    fn handle(&mut self, msg: AddMoney, _ctx: &mut Self::Context) {
+        let transaction_id = self.add_tx_id();
+        let server_socket = self.server_socket.clone();
+
+        async move {
+            let res = server_socket
+                .send(SocketSend {
+                    data: ClientPacket::AddPoints(self.user_id, msg.amount, transaction_id),
+                })
+                .await;
+
+            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+                error!("Error sending AddMoney: {}", e);
+            } else {
+                info!("Sent AddMoney with transaction id {}", transaction_id)
+            }
         }
-        Ok(String::from("unknown"))
+        .into_actor(self)
+        .boxed_local();
+    }
+}
+
+impl Handler<SocketEnd> for OrderProcessor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SocketEnd, ctx: &mut Self::Context) -> Self::Result {
+        todo!()
+    }
+}
+
+impl Handler<ReceivedPacket<ServerPacket>> for OrderProcessor {
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(
+        &mut self,
+        msg: ReceivedPacket<ServerPacket>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        match msg.data {
+            ServerPacket::Ready(tx_id) => self.handle_ready(tx_id),
+            ServerPacket::Insufficient(tx_id) => self.handle_insufficient(tx_id),
+            ServerPacket::ServerErrror(tx_id, e) => self.handle_server_error(tx_id, e),
+        }
     }
 }
 
@@ -98,7 +196,6 @@ mod test {
     use crate::order_processor::processor_messages::{
         AbortOrder, AddMoney, CommitOrder, PrepareOrder,
     };
-    use actix::Actor;
 
     #[actix_rt::test]
     async fn test_prepare_ready() {
