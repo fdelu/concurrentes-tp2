@@ -9,3 +9,5 @@ desktop.ini
 .idea
 
 /target
+
+/coffee_maker/src/logs
