@@ -15,11 +15,11 @@ use serde::Serialize;
 use test_util::MockTcpSocket as TcpSocket;
 #[cfg(test)]
 use test_util::MockTcpStream as TcpStream;
-use tokio::spawn;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
+use tokio::{select, spawn};
 
 mod error;
 mod messages;
@@ -31,7 +31,6 @@ use self::write::WriterLoop;
 pub use error::SocketError;
 pub use messages::*;
 
-pub(crate) type OnEnd = Box<dyn Fn() + Send + 'static>;
 pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
 
 pub(crate) const PACKET_SEP: u8 = b'\n';
@@ -105,28 +104,24 @@ impl<T: Packet> Socket<T> {
         };
         let (reader, writer) = stream.into_split();
 
-        let on_end = Self::on_end(end_handler.clone(), my_addr);
-        let write_handle = spawn(async move {
-            WriterLoop::new(writer, write_receiver, on_end).run().await;
-        });
-
-        let on_end = Self::on_end(end_handler.clone(), my_addr);
         let on_read = Self::on_read(received_handler, my_addr);
-        let read_handle = spawn(async move {
-            let _ = ReaderLoop::new(reader, on_read, on_end).run().await;
-        });
+        let receiver = ReaderLoop::new(reader, on_read).run();
 
-        stop_rx.await.ok();
-        write_handle.abort();
-        read_handle.abort();
+        let writer = WriterLoop::new(writer, write_receiver).run();
+
+        // Wait for either the writer or the receiver to end, or a stop signal
+        select! {
+            () = writer => (),
+            _ = receiver => (),
+            _ = stop_rx => ()
+        }
+        Self::on_end(end_handler, my_addr);
 
         Ok(())
     }
 
-    fn on_end<B: AHandler<SocketEnd>>(actor: Addr<B>, my_addr: SocketAddr) -> OnEnd {
-        Box::new(move || {
-            actor.do_send(SocketEnd { addr: my_addr });
-        })
+    fn on_end<B: AHandler<SocketEnd>>(actor: Addr<B>, my_addr: SocketAddr) {
+        actor.do_send(SocketEnd { addr: my_addr })
     }
 
     fn on_read<A: AHandler<ReceivedPacket<T>>>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead<T> {

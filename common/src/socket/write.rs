@@ -3,17 +3,16 @@ use tokio::{io::AsyncWriteExt, sync::mpsc::UnboundedReceiver};
 
 use super::SocketError;
 
-use super::{OnEnd, WriterSend, PACKET_SEP};
+use super::{WriterSend, PACKET_SEP};
 
 pub struct WriterLoop<T: AsyncWriteExt + Unpin, P: Serialize> {
     writer: T,
     rx: UnboundedReceiver<WriterSend<P>>,
-    on_end: OnEnd,
 }
 
 impl<T: AsyncWriteExt + Unpin, P: Serialize> WriterLoop<T, P> {
-    pub(crate) fn new(writer: T, rx: UnboundedReceiver<WriterSend<P>>, on_end: OnEnd) -> Self {
-        Self { writer, rx, on_end }
+    pub(crate) fn new(writer: T, rx: UnboundedReceiver<WriterSend<P>>) -> Self {
+        Self { writer, rx }
     }
 
     async fn write(&mut self, data: P) -> Result<(), SocketError> {
@@ -46,17 +45,11 @@ impl<T: AsyncWriteExt + Unpin, P: Serialize> WriterLoop<T, P> {
                 _ => (),
             }
         }
-        (self.on_end)();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        atomic::{AtomicBool, Ordering::Relaxed},
-        Arc,
-    };
-
     use super::*;
     use tokio::sync::{mpsc::unbounded_channel, oneshot};
     use tokio_test::{block_on, io::Builder};
@@ -77,10 +70,7 @@ mod tests {
         .unwrap();
         drop(tx);
 
-        let ended = Arc::new(AtomicBool::new(false));
-        let ended_c = ended.clone();
-        let on_end = Box::new(move || ended_c.store(true, Relaxed));
-        let socket_read = WriterLoop::new(mock_writer, rx, on_end);
+        let socket_read = WriterLoop::new(mock_writer, rx);
 
         let res = block_on(async move {
             socket_read.run().await;
@@ -88,7 +78,6 @@ mod tests {
         })
         .unwrap();
 
-        assert!(ended.load(Relaxed));
         assert!(res.is_ok());
     }
 
@@ -118,17 +107,13 @@ mod tests {
         .unwrap();
         drop(tx);
 
-        let ended = Arc::new(AtomicBool::new(false));
-        let ended_c = ended.clone();
-        let on_end = Box::new(move || ended_c.store(true, Relaxed));
-        let socket_read = WriterLoop::new(mock_writer, rx, on_end);
+        let socket_read = WriterLoop::new(mock_writer, rx);
 
         let (res_1, res_2) = block_on(async move {
             socket_read.run().await;
             (result_rx_1.await.unwrap(), result_rx_2.await.unwrap())
         });
 
-        assert!(ended.load(Relaxed));
         assert!(res_1.is_ok());
         assert!(res_2.is_ok());
     }
