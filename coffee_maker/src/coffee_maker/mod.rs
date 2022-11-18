@@ -40,15 +40,11 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
                 // TODO
                 self.order_processor.do_send(PrepareOrder {
                     coffee,
-                    user_id: 123,
                     maker: ctx.address().recipient(),
                 });
             }
-            Ok(Order::Recharge(amount)) => {
-                self.order_processor.do_send(AddMoney {
-                    amount,
-                    user_id: 123,
-                });
+            Ok(Order::Recharge(amount, user_id)) => {
+                self.order_processor.do_send(AddMoney { amount, user_id });
             }
             Err(e) => {
                 error!("Error parsing order: {}", e);

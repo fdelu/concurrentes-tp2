@@ -1,16 +1,20 @@
 use std::str::FromStr;
 
-use common::{packet::Amount, socket::SocketError};
+use common::{
+    packet::{Amount, UserId},
+    socket::SocketError,
+};
 
 #[derive(Clone)]
 pub struct Coffee {
     pub name: String,
+    pub user_id: UserId,
     pub cost: Amount,
 }
 
 pub enum Order {
     Sale(Coffee),
-    Recharge(Amount),
+    Recharge(Amount, UserId),
 }
 
 const ERR_UNKNOWN_TYPE: &str = "Unknown order type";
@@ -24,21 +28,23 @@ impl FromStr for Order {
 
         match splitted[0] {
             "sale" => {
-                if splitted.len() != 3 {
+                if splitted.len() != 4 {
                     return Err(SocketError::new(ERR_MISSING_FIELDS));
                 }
                 let coffee = Coffee {
                     name: splitted[1].to_string(),
-                    cost: Amount::from_str(splitted[2])?,
+                    user_id: splitted[2].parse()?,
+                    cost: Amount::from_str(splitted[3])?,
                 };
                 Ok(Order::Sale(coffee))
             }
             "recharge" => {
-                if splitted.len() != 2 {
+                if splitted.len() != 3 {
                     return Err(SocketError::new(ERR_MISSING_FIELDS));
                 }
                 let amount = Amount::from_str(splitted[1])?;
-                Ok(Order::Recharge(amount))
+                let user_id = splitted[2].parse()?;
+                Ok(Order::Recharge(amount, user_id))
             }
             _ => Err(SocketError::new(ERR_UNKNOWN_TYPE)),
         }

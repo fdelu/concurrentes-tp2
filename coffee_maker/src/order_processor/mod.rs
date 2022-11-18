@@ -100,7 +100,7 @@ impl Handler<PrepareOrder> for OrderProcessor {
         async move {
             let res = server_socket
                 .send(SocketSend {
-                    data: ClientPacket::PrepareOrder(msg.user_id, coffee.cost, transaction_id),
+                    data: ClientPacket::PrepareOrder(coffee.user_id, coffee.cost, transaction_id),
                 })
                 .await;
 

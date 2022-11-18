@@ -15,7 +15,6 @@ pub trait OrderProcessorTrait:
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct PrepareOrder {
-    pub user_id: UserId,
     pub coffee: Coffee,
     pub maker: Recipient<MakeCoffee>,
 }
