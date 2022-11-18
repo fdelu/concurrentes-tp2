@@ -1,166 +1,107 @@
-use crate::order_processor::processor::OrderProcessor;
+use std::io::{BufRead, BufReader};
 use std::time;
-extern crate actix;
-use crate::order_processor::processor_messages::{AbortOrder, AddMoney, CommitOrder, PrepareOrder};
-use actix::Addr;
+
+use actix::{
+    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
+};
 use rand::Rng;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
-use std::str::FromStr;
-
 use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tracing::{error, info, warn};
 
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where
-    P: AsRef<Path>,
-{
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
+use crate::order_processor::{
+    AbortOrder, AddMoney, CommitOrder, OrderProcessorTrait, PrepareOrder,
+};
+use common::packet::TxId;
+
+mod messages;
+mod order;
+
+pub use self::messages::*;
+pub use self::order::Coffee;
+use self::order::Order;
+
+pub struct CoffeeMaker<O: OrderProcessorTrait> {
+    order_processor: Addr<O>,
 }
 
-///prepares coffee, the time it takes is random and theres a chance to fail.
-async fn prepare_coffee() -> bool {
-    let mut rng = rand::thread_rng();
-    sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
-    if rng.gen_range(0..100) < 15 {
-        info!("failed preparing coffee");
-        return false;
-    }
-    sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
-    info!("coffee finshed");
-    true
+impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
+    type Context = Context<Self>;
 }
 
-///Sends the server an abort message.
-async fn abort(order_actor: &Addr<OrderProcessor>) {
-    let abort = AbortOrder {};
-    let response = order_actor.send(abort).await;
-    let _ = match response {
-        Ok(message) => message,
-        Err(error) => {
-            error!("actor problem: {:?}", error);
-            return;
-        }
-    };
-}
-
-///Sends the server a commit message.
-async fn commit(order_actor: &Addr<OrderProcessor>) {
-    let abort = CommitOrder {};
-    let response = order_actor.send(abort).await;
-    let _ = match response {
-        Ok(message) => message,
-        Err(error) => {
-            error!("actor problem: {:?}", error);
-            return;
-        }
-    };
-}
-
-///Sends the order to buy coffee to the server.
-/// If its oked starts preparing the coffee.
-async fn sale_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
-    let order = PrepareOrder {
-        user_id: FromStr::from_str(order_data[0]).expect("field was not u8"),
-        cost: FromStr::from_str(order_data[1]).expect("field was not u8"),
-    };
-
-    info!("order: {}, {}", order.user_id, order.cost); //debug only
-
-    let response = order_actor.send(order).await;
-    let message = match response {
-        Ok(message) => message,
-        Err(error) => {
-            error!("actor problem: {:?}", error);
-            return;
-        }
-    };
-
-    let result = match message {
-        Ok(result) => result,
-        Err(error) => {
-            error!("message problem: {:?}", error);
-            return;
-        }
-    };
-
-    if result != *"ready" {
-        error!("Error at prepare faze, result was {}", result);
-        return;
+impl<O: OrderProcessorTrait> CoffeeMaker<O> {
+    pub fn new(order_processor: Addr<O>) -> Addr<Self> {
+        Self { order_processor }.start()
     }
 
-    if prepare_coffee() {
-        debug!("commiting coffee");
-        commit(order_actor).await;
-    } else {
-        debug!("aborting coffee");
-        abort(order_actor).await;
+    ///checks the type of order
+    fn process_order(&self, order: String, ctx: &Context<Self>) {
+        match order.parse::<Order>() {
+            Ok(Order::Sale(coffee)) => {
+                // TODO
+                self.order_processor.do_send(PrepareOrder {
+                    coffee,
+                    user_id: 123,
+                    maker: ctx.address().recipient(),
+                });
+            }
+            Ok(Order::Recharge(amount)) => {
+                self.order_processor.do_send(AddMoney {
+                    amount,
+                    user_id: 123,
+                });
+            }
+            Err(e) => {
+                error!("Error parsing order: {}", e);
+            }
+        }
+    }
+
+    /// Prepares coffee, the time it takes is random and theres a chance to fail.
+    async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId) {
+        let mut rng = rand::thread_rng();
+        sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
+        if rng.gen_range(0..100) < 15 {
+            warn!("Failed preparing coffee: {}", coffee.name);
+            processor.do_send(AbortOrder {
+                transaction_id: tx_id,
+                coffee,
+            });
+            return;
+        }
+
+        sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
+        info!("Finished making coffee: {}", coffee.name);
+        processor.do_send(CommitOrder {
+            transaction_id: tx_id,
+            coffee,
+        });
     }
 }
 
-///Sends the server a message to add money in an users account.
-async fn recharge_order(order_data: &[&str], order_actor: &Addr<OrderProcessor>) {
-    let order = AddMoney {
-        user_id: FromStr::from_str(order_data[0]).expect("field was not u8"),
-        amount: FromStr::from_str(order_data[1]).expect("field was not u8"),
-    };
+impl<O: OrderProcessorTrait> Handler<ReadOrdersFrom> for CoffeeMaker<O> {
+    type Result = ();
 
-    debug!("recharge: {}, {}", order.user_id, order.amount);
-    let response = order_actor.send(order).await;
-    let message = match response {
-        Ok(message) => message,
-        Err(error) => {
-            error!("actor problem: {:?}", error);
-            return;
+    fn handle(&mut self, msg: ReadOrdersFrom, ctx: &mut Context<Self>) -> Self::Result {
+        let reader = BufReader::new(msg.reader);
+
+        for line_res in reader.lines() {
+            match line_res {
+                Ok(line) => self.process_order(line, ctx),
+                Err(e) => error!("I/O error: {}", e),
+            }
         }
-    };
-
-    let result = match message {
-        Ok(result) => result,
-        Err(error) => {
-            error!("message problem: {:?}", error);
-            return;
-        }
-    };
-
-    if result != *"Ok" {
-        error!("couldnt recharge order, result was {}", result);
-        return;
-    }
-    info!("recharge successfull");
-}
-
-///checks the type of order
-async fn process_order(order: String, order_actor: &Addr<OrderProcessor>) {
-    let order_data: Vec<&str> = order.split(',').collect();
-
-    if order_data[0] == "sale" {
-        sale_order(&order_data[1..], order_actor).await;
-    } else if order_data[0] == "recharge" {
-        recharge_order(&order_data[1..], order_actor).await;
-    } else {
-        error!("Error order not valid");
     }
 }
 
-///loops through the order file and prepares the orders
-#[actix_rt::main]
-pub async fn start_coffee_maker(path: &str, addr: &str) {
-    // let _guard = init();
-    info!("started coffee making");
-    let order_actor = OrderProcessor::new(addr, 1000).expect("couldnt initialize actor");
-    let order_actor_addr = order_actor.start();
-    if let Ok(lines) = read_lines(path) {
-        for order in lines.flatten() {
-            process_order(order, &order_actor_addr).await;
-        }
-    } else {
-        error!("file not found");
-        return;
+impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(&mut self, msg: MakeCoffee, _ctx: &mut Context<Self>) -> Self::Result {
+        let addr = self.order_processor.clone();
+        async move { CoffeeMaker::make_coffee(addr, msg.coffee, msg.tx_id).await }
+            .into_actor(self)
+            .boxed_local()
     }
-    info!("all orders taken");
 }
 
 #[cfg(test)]
