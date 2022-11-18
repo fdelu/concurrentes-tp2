@@ -113,7 +113,7 @@ impl<T: Packet> Socket<T> {
         let on_end = Self::on_end(end_handler.clone(), my_addr);
         let on_read = Self::on_read(received_handler, my_addr);
         let read_handle = spawn(async move {
-            ReaderLoop::new(reader, on_read, on_end).run().await;
+            let _ = ReaderLoop::new(reader, on_read, on_end).run().await;
         });
 
         stop_rx.await.ok();

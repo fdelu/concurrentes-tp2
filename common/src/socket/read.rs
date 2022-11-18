@@ -22,24 +22,29 @@ impl<T: AsyncReadExt + Unpin, P: DeserializeOwned> ReaderLoop<T, P> {
     async fn process_message(&mut self, buffer: &mut Vec<u8>) -> Result<usize, SocketError> {
         buffer.clear();
         let size = self.reader.read_until(PACKET_SEP, buffer).await?;
-        (self.on_read)(serde_json::from_slice(buffer)?);
+
+        if size > 0 {
+            (self.on_read)(serde_json::from_slice(buffer)?);
+        }
 
         Ok(size)
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> Result<(), SocketError> {
         let mut buffer = vec![];
         loop {
             match self.process_message(&mut buffer).await {
                 Ok(0) => break,
                 Err(e) => {
                     eprintln!("Error in ReaderLoop: {}", e);
-                    break;
+                    (self.on_end)();
+                    return Err(e);
                 }
                 _ => (),
             }
         }
         (self.on_end)();
+        Ok(())
     }
 }
 
@@ -58,9 +63,13 @@ mod tests {
     };
     use tokio_test::{block_on, io::Builder};
 
+    type DataReadFromInput<P> = Arc<Mutex<Vec<P>>>;
+    type Ended = Arc<AtomicBool>;
+    type ReaderResult = Result<(), SocketError>;
+
     fn setup<P: DeserializeOwned + Send + 'static>(
         input: Vec<Vec<u8>>,
-    ) -> (Arc<Mutex<Vec<P>>>, Arc<AtomicBool>) {
+    ) -> (DataReadFromInput<P>, Ended, ReaderResult) {
         let mut builder = Builder::new();
         for i in input {
             builder.read(&i);
@@ -75,8 +84,7 @@ mod tests {
         let on_end = Box::new(move || ended_c.store(true, Relaxed));
 
         let socket_read = ReaderLoop::new(mock_reader, on_read, on_end);
-        block_on(socket_read.run());
-        (read, ended)
+        (read, ended, block_on(socket_read.run()))
     }
 
     #[test]
@@ -84,7 +92,8 @@ mod tests {
         let mut input = vec![1, 2, 3, 4]; // Largo 4, mensaje 1 2 3 4
         input = serde_json::to_vec(&input).unwrap();
         input.push(PACKET_SEP);
-        let (read, ended) = setup::<Vec<u8>>(vec![input]);
+        let (read, ended, result) = setup::<Vec<u8>>(vec![input]);
+        result.unwrap();
 
         assert_eq!(*read.lock().unwrap(), vec![vec![1, 2, 3, 4]]);
         assert!(ended.load(Relaxed));
@@ -96,7 +105,8 @@ mod tests {
         input = serde_json::to_vec(&input).unwrap();
         input.extend(serde_json::to_vec(&input).unwrap());
 
-        let (read, ended) = setup::<Vec<u8>>(vec![input]);
+        let (read, ended, result) = setup::<Vec<u8>>(vec![input]);
+        result.unwrap_err();
 
         assert!(read.lock().unwrap().is_empty());
         assert!(ended.load(Relaxed));
@@ -111,7 +121,8 @@ mod tests {
         input_2 = serde_json::to_vec(&input_2).unwrap();
         input_2.push(PACKET_SEP);
 
-        let (read, ended) = setup::<Vec<u8>>(vec![input, input_2]);
+        let (read, ended, result) = setup::<Vec<u8>>(vec![input, input_2]);
+        result.unwrap();
 
         assert_eq!(*read.lock().unwrap(), vec![vec![9, 3], vec![1, 2]]);
         assert!(ended.load(Relaxed));
@@ -126,7 +137,8 @@ mod tests {
         input_3.push(PACKET_SEP);
         inputs.push(input_3);
 
-        let (read, ended) = setup::<Vec<u8>>(inputs);
+        let (read, ended, result) = setup::<Vec<u8>>(inputs);
+        result.unwrap();
 
         assert_eq!(*read.lock().unwrap(), vec![vec![3], vec![4, 5, 4]]);
         assert!(ended.load(Relaxed));
@@ -155,7 +167,7 @@ mod tests {
             assert!(!ended_c2.load(Relaxed)); // todavia no deberia figurar como ended
             before_tx.write_all(&input_2).await.unwrap();
             drop(before_tx);
-            future.await;
+            future.await.unwrap();
         });
 
         let result = rx.iter().collect::<Vec<Vec<u8>>>();
