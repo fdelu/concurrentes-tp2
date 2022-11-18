@@ -154,11 +154,11 @@ mod tests {
     use crate::dist_mutex::messages::ok::OkMessage;
     use crate::dist_mutex::packets::{AckPacket, OkPacket};
     use crate::dist_mutex::server_id::ServerId;
-    use crate::dist_mutex::MutexError;
+    use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
-    use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
+    use crate::AcquireMessage;
     use common::socket::SocketError;
 
     struct TestDispatcher {
