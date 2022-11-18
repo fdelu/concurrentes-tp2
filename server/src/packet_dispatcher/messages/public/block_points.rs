@@ -1,13 +1,14 @@
 use crate::packet_dispatcher::ClientId;
-use crate::two_phase_commit::messages::public::submit::SubmitMessage;
+use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;
+use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
 use crate::{AcquireMessage, PacketDispatcher};
 use actix::prelude::*;
-use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
 pub struct BlockPointsMessage {
+    pub transaction_id: TransactionId,
     pub client_id: ClientId,
     pub amount: u32,
 }
@@ -16,10 +17,10 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, PacketDispatcherResult<()>>;
 
     fn handle(&mut self, msg: BlockPointsMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let transaction = Transaction::Block {
-                        id: msg.client_id,
-                        amount: msg.amount,
-                    };
+        let transaction = Transaction::Discount {
+            id: msg.client_id,
+            amount: msg.amount,
+        };
 
         let mutex = self.mutexes.get_mut(&msg.client_id).unwrap();
         let mutex_c = mutex.clone();
@@ -33,17 +34,20 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
 
             println!("Acquired mutex for client {}", msg.client_id);
             match tp_commit_addr
-                .send(SubmitMessage {
-                    transaction
+                .send(CommitRequestMessage {
+                    id: msg.transaction_id,
+                    transaction,
                 })
-                .await.unwrap() {
-                    Ok(_) => {
-                        println!("Transaction (Block) successful");
-                    }
-                    Err(e) => {
-                        println!("Transaction failed: {:?}", e);
-                    }
+                .await
+                .unwrap()
+            {
+                Ok(_) => {
+                    println!("Transaction (Block) successful");
                 }
+                Err(e) => {
+                    println!("Transaction failed: {:?}", e);
+                }
+            }
             if mutex_c.send(crate::ReleaseMessage {}).await.is_err() {
                 return Err(PacketDispatcherError::Timeout);
             };

@@ -61,7 +61,10 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
                 .await
                 .is_err()
             {
-                println!("[Mutex {}] Timeout while waiting for oks, maybe some server is down", id);
+                println!(
+                    "[Mutex {}] Timeout while waiting for oks, maybe some server is down",
+                    id
+                );
                 Err(MutexError::Timeout)
             } else {
                 println!("[Mutex {}] All oks received", id);

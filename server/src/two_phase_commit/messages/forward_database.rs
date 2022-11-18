@@ -3,7 +3,6 @@ use crate::two_phase_commit::TwoPhaseCommit;
 use crate::ServerId;
 use actix::prelude::*;
 
-use crate::dist_mutex::packets::get_timestamp;
 use crate::packet_dispatcher::packet::{Packet, SyncResponsePacket};
 use common::AHandler;
 
@@ -22,6 +21,7 @@ impl<P: AHandler<SendMessage>> Handler<ForwardDatabaseMessage> for TwoPhaseCommi
             packet: Packet::SyncResponse(SyncResponsePacket {
                 snapshot_from: self.database_last_update,
                 database: self.database.clone(),
+                logs: self.logs.clone(),
             }),
         });
     }

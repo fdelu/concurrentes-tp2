@@ -1,6 +1,7 @@
 use crate::dist_mutex::packets::Timestamp;
 use crate::packet_dispatcher::ClientId;
-use crate::two_phase_commit::{ClientData, TwoPhaseCommit};
+use crate::two_phase_commit::packets::Transaction;
+use crate::two_phase_commit::{ClientData, TransactionId, TransactionState, TwoPhaseCommit};
 use actix::prelude::*;
 use std::collections::HashMap;
 
@@ -9,6 +10,7 @@ use std::collections::HashMap;
 pub struct UpdateDatabaseMessage {
     pub snapshot_from: Timestamp,
     pub database: HashMap<ClientId, ClientData>,
+    pub logs: HashMap<TransactionId, (TransactionState, Transaction)>,
 }
 
 impl<P: Actor> Handler<UpdateDatabaseMessage> for TwoPhaseCommit<P> {
@@ -20,13 +22,14 @@ impl<P: Actor> Handler<UpdateDatabaseMessage> for TwoPhaseCommit<P> {
                 "Updating database from {} to {}",
                 self.database_last_update, msg.snapshot_from
             );
-            self.database_last_update = msg.snapshot_from;
-            msg.database.iter().for_each(|(&id, data)| {
-                data.blocked_points.iter().for_each(|(&transaction_id, &points)| {
-                    self.set_timeout_for_blocked_points(transaction_id, id, ctx);
-                });
+            msg.logs.iter().for_each(|(id, (state, _))| {
+                if *state == TransactionState::Prepared {
+                    self.set_timeout_for_transaction(*id, ctx);
+                }
             });
             self.database = msg.database;
+            self.logs = msg.logs;
+            self.database_last_update = msg.snapshot_from;
         } else {
             println!(
                 "Ignoring database update ({} >= {})",

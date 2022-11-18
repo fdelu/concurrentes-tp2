@@ -12,11 +12,10 @@ impl<P: Actor> Handler<RollbackMessage> for TwoPhaseCommit<P> {
 
     fn handle(&mut self, msg: RollbackMessage, ctx: &mut Self::Context) -> Self::Result {
         println!("{} Received rollback for {}", self, msg.id);
-        self.stakeholder_timeouts
-            .remove(&msg.id)
-            .map(|tx| tx.send(()));
 
-        self.logs.insert(msg.id, TransactionState::Abort);
+        if let Some((state, _)) = self.logs.get_mut(&msg.id) {
+            *state = TransactionState::Abort;
+        }
         self.abort_transaction(msg.id, ctx);
     }
 }

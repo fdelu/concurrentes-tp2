@@ -1,6 +1,5 @@
 use crate::packet_dispatcher::ClientId;
 use crate::two_phase_commit::TransactionId;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,20 +38,13 @@ pub struct RollbackPacket {
 }
 
 impl PreparePacket {
-    pub fn new(transaction: Transaction) -> Self {
-        // TODO: Avoid randomness
-        let id = rand::thread_rng().gen();
-        println!("New transaction with id: {} - {:?}", id, transaction);
+    pub fn new(id: TransactionId, transaction: Transaction) -> Self {
         Self { id, transaction }
     }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Transaction {
-    Block { id: ClientId, amount: u32 },
+    Discount { id: ClientId, amount: u32 },
     Increase { id: ClientId, amount: u32 },
-    Discount {
-        id: ClientId,
-        associated_to: TransactionId,
-    },
 }

@@ -1,7 +1,7 @@
-use actix::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::time::Duration;
+
+use actix::prelude::*;
 
 use common::AHandler;
 
@@ -31,6 +31,7 @@ pub mod messages;
 pub mod packet;
 
 pub trait TCPActorTrait: AHandler<SendPacket<Packet>> {}
+
 pub type ClientId = u32;
 
 impl<A: AHandler<ReceivedPacket<Packet>>> TCPActorTrait for ConnectionHandler<A, Packet> {}
@@ -45,8 +46,13 @@ pub trait PacketDispatcherTrait:
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
-pub(crate) const SERVERS: [ServerId; 5] =
-    [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }, ServerId { id: 3 }, ServerId { id: 4 }];
+pub(crate) const SERVERS: [ServerId; 5] = [
+    ServerId { id: 0 },
+    ServerId { id: 1 },
+    ServerId { id: 2 },
+    ServerId { id: 3 },
+    ServerId { id: 4 },
+];
 
 pub struct PacketDispatcher {
     server_id: ServerId,
@@ -193,6 +199,7 @@ impl PacketDispatcher {
             .try_send(UpdateDatabaseMessage {
                 snapshot_from: packet.snapshot_from,
                 database: packet.database,
+                logs: packet.logs,
             })
             .unwrap();
     }

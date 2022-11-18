@@ -62,7 +62,10 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
                 println!("{} {:?} has priority over me, sending ok", self, msg.from);
                 send_ok(&self.dispatcher, msg.from, self.id);
             } else {
-                println!("{} I have priority over {}", self, msg.from);
+                println!(
+                    "{} I have priority over {} (my timestamp {} - other timestamp: {})",
+                    self, msg.from, my_timestamp, msg.timestamp
+                );
                 self.queue.push((msg.timestamp, msg.from));
                 self.queue.sort_by_key(|(timestamp, _)| *timestamp);
             }

@@ -17,24 +17,17 @@ impl<P: AHandler<SendMessage>> Handler<CommitMessage> for TwoPhaseCommit<P> {
 
     fn handle(&mut self, msg: CommitMessage, ctx: &mut Self::Context) -> Self::Result {
         println!("{} Received commit from {} for {}", self, msg.from, msg.id);
-        self.stakeholder_timeouts
-            .remove(&msg.id)
-            .map(|tx| tx.send(()));
 
-        match self.logs.get(&msg.id) {
-            Some(TransactionState::Prepared) => {
-                self.logs.insert(msg.id, TransactionState::Commit);
+        if let Some((state, _)) = self.logs.get_mut(&msg.id) {
+            if *state == TransactionState::Prepared {
+                *state = TransactionState::Commit;
                 self.commit_transaction(msg.id, ctx);
             }
-            Some(TransactionState::Commit) => {
-                // TODO: Send Ack
-            }
-            _ => {
-                // TODO: Fail
-                // It is possible that a transaction was being held while syncing the server
-                // and there is no entry in the logs
-                // In this case, restart the server and send a new sync request
-            }
+        } else {
+            // TODO: Fail
+            // It is possible that a transaction was being held while syncing the server
+            // and there is no entry in the logs
+            // In this case, restart the server and send a new sync request
         }
         async move { Ok(()) }.into_actor(self).boxed_local()
     }
