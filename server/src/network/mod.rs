@@ -22,8 +22,11 @@ use common::socket::test_util::MockStream as Stream;
 pub use common::socket::ReceivedPacket;
 #[cfg(not(test))]
 use common::socket::Stream;
-use common::socket::{Packet, SocketEnd, SocketError};
+use common::socket::{PacketRecv, PacketSend, SocketEnd, SocketError};
 use common::AHandler;
+
+pub trait Packet: PacketSend + PacketRecv {}
+impl<T: PacketSend + PacketRecv> Packet for T {}
 
 pub struct ConnectionHandler<A: AHandler<ReceivedPacket<P>>, P: Packet> {
     connections: HashMap<SocketAddr, Connection<Self, P>>,
@@ -144,10 +147,10 @@ mod tests {
 
     use super::connection::test::connection_new_context;
     use super::listener::test::listener_new_context;
-    use super::Listener;
     use super::{Connection, ConnectionHandler};
+    use super::{Listener, Packet};
+    use common::socket::SocketError;
     use common::socket::{test_util::MockTcpStream as TcpStream, ReceivedPacket};
-    use common::socket::{Packet, SocketError};
 
     pub struct Receiver<P: Packet> {
         pub received: Arc<Mutex<Vec<ReceivedPacket<P>>>>,

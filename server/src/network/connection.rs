@@ -1,22 +1,23 @@
 use std::{future::Future, net::SocketAddr};
 
 use actix::{Actor, Addr};
+#[cfg(test)]
+use mockall::automock;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
 };
 
+use super::Packet;
 #[cfg(test)]
 use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
-use common::socket::{Packet, ReceivedPacket, SocketEnd, SocketError, SocketSend};
+use common::socket::{ReceivedPacket, SocketEnd, SocketError, SocketSend};
 #[cfg(not(test))]
 use common::socket::{Socket, Stream};
 use common::AHandler;
-#[cfg(test)]
-use mockall::automock;
 
 pub struct Connection<A: AHandler<SocketEnd>, P: Packet> {
-    socket: Addr<Socket<P>>,
+    socket: Addr<Socket<P, P>>,
     cancel_task: Option<JoinHandle<()>>,
     end_handler: Addr<A>,
     addr: SocketAddr,
@@ -68,14 +69,13 @@ impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
 
 #[cfg(test)]
 pub mod test {
-    use common::socket::{Packet, SocketEnd};
-
-    use super::MockConnection as Connection;
-    use common::AHandler;
-    use mockall::lazy_static;
     use std::sync::{Mutex, MutexGuard};
 
-    use super::__mock_MockConnection;
+    use mockall::lazy_static;
+
+    use super::{super::Packet, MockConnection as Connection, __mock_MockConnection};
+    use common::socket::SocketEnd;
+    use common::AHandler;
 
     // ver https://github.com/asomers/mockall/blob/master/mockall/examples/synchronization.rs
     lazy_static! {

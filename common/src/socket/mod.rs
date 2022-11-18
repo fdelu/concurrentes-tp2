@@ -1,6 +1,6 @@
 #![cfg_attr(any(test, feature = "socket_test"), allow(dead_code))]
 use std::io;
-use std::marker::Send;
+use std::marker::{PhantomData, Send};
 use std::net::{IpAddr, SocketAddr};
 
 use crate::AHandler;
@@ -35,50 +35,75 @@ pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
 
 pub(crate) const PACKET_SEP: u8 = b'\n';
 
-pub trait Packet: Serialize + DeserializeOwned + Send + Unpin + 'static {}
-impl<T: Serialize + DeserializeOwned + Send + Unpin + 'static> Packet for T {}
+pub trait PacketSend: Serialize + Send + Sync + Unpin + 'static {}
+impl<T: Serialize + Send + Sync + Unpin + 'static> PacketSend for T {}
+pub trait PacketRecv: DeserializeOwned + Send + Sync + Unpin + 'static {}
+impl<T: DeserializeOwned + Send + Sync + Unpin + 'static> PacketRecv for T {}
 
 pub enum Stream {
     Existing(TcpStream),
     NewBindedTo(IpAddr),
 }
 
-pub struct Socket<T: Packet> {
-    write_sender: UnboundedSender<WriterSend<T>>,
+pub struct Socket<S: PacketSend, R: PacketRecv> {
+    write_tx: UnboundedSender<WriterSend<S>>,
     stop_tx: Option<oneshot::Sender<()>>,
+    _receiver_type: PhantomData<R>,
 }
 
-impl<T: Packet> Socket<T> {
-    pub fn new<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
-        received_handler: Addr<A>,
-        end_handler: Addr<B>,
-        socket_addr: SocketAddr,
-        stream: Stream,
-    ) -> Socket<T> {
-        let (write_sender, write_receiver) = unbounded_channel();
-        let end_h = end_handler.clone();
+struct SocketRunner<A, B, R, S>
+where
+    R: PacketRecv,
+    A: AHandler<ReceivedPacket<R>>,
+    B: AHandler<SocketEnd>,
+    S: PacketSend,
+{
+    received_handler: Addr<A>,
+    end_handler: Addr<B>,
+    stop_rx: oneshot::Receiver<()>,
+    stream: Stream,
+    socket_addr: SocketAddr,
+    write_rx: UnboundedReceiver<WriterSend<S>>,
+    _receiver_type: PhantomData<R>,
+}
 
-        let (stop_tx, stop_rx) = oneshot::channel();
-        spawn(async move {
-            if Self::run(
-                received_handler,
-                end_handler,
-                stop_rx,
-                stream,
-                socket_addr,
-                write_receiver,
-            )
-            .await
-            .is_err()
-            {
-                end_h.do_send(SocketEnd { addr: socket_addr });
-            }
+impl<A, B, R, S> SocketRunner<A, B, R, S>
+where
+    R: PacketRecv,
+    A: AHandler<ReceivedPacket<R>>,
+    B: AHandler<SocketEnd>,
+    S: PacketSend,
+{
+    async fn run(self) -> Result<(), SocketError> {
+        let on_read = self.on_read();
+        let stream = match self.stream {
+            Stream::Existing(stream) => stream,
+            Stream::NewBindedTo(bind_to) => Self::new_tcp_stream(bind_to, self.socket_addr).await?,
+        };
+        let (reader, writer) = stream.into_split();
+
+        let receiver = ReaderLoop::new(reader, on_read).run();
+        let writer = WriterLoop::new(writer, self.write_rx).run();
+
+        // Wait for either the writer or the receiver to end, or a stop signal
+        select! {
+            () = writer => (),
+            _ = receiver => (),
+            _ = self.stop_rx => ()
+        }
+        self.end_handler.do_send(SocketEnd {
+            addr: self.socket_addr,
         });
 
-        Socket {
-            write_sender,
-            stop_tx: Some(stop_tx),
-        }
+        Ok(())
+    }
+
+    fn on_read(&self) -> OnRead<R> {
+        let actor = self.received_handler.clone();
+        let addr = self.socket_addr;
+        Box::new(move |data: R| {
+            actor.do_send(ReceivedPacket { data, addr });
+        })
     }
 
     async fn new_tcp_stream(bind_to: IpAddr, addr: SocketAddr) -> io::Result<TcpStream> {
@@ -89,52 +114,50 @@ impl<T: Packet> Socket<T> {
         socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
         socket.connect(addr).await
     }
+}
 
-    async fn run<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
+impl<S: PacketSend, R: PacketRecv> Socket<S, R> {
+    pub fn new<A, B>(
         received_handler: Addr<A>,
         end_handler: Addr<B>,
-        stop_rx: oneshot::Receiver<()>,
+        socket_addr: SocketAddr,
         stream: Stream,
-        my_addr: SocketAddr,
-        write_receiver: UnboundedReceiver<WriterSend<T>>,
-    ) -> Result<(), SocketError> {
-        let stream = match stream {
-            Stream::Existing(stream) => stream,
-            Stream::NewBindedTo(bind_to) => Self::new_tcp_stream(bind_to, my_addr).await?,
-        };
-        let (reader, writer) = stream.into_split();
+    ) -> Socket<S, R>
+    where
+        A: AHandler<ReceivedPacket<R>>,
+        B: AHandler<SocketEnd>,
+    {
+        let (write_tx, write_rx) = unbounded_channel();
+        let end_h = end_handler.clone();
 
-        let on_read = Self::on_read(received_handler, my_addr);
-        let receiver = ReaderLoop::new(reader, on_read).run();
+        let (stop_tx, stop_rx) = oneshot::channel();
+        spawn(async move {
+            if (SocketRunner {
+                received_handler,
+                end_handler,
+                stop_rx,
+                stream,
+                socket_addr,
+                write_rx,
+                _receiver_type: PhantomData::default(),
+            }
+            .run())
+            .await
+            .is_err()
+            {
+                end_h.do_send(SocketEnd { addr: socket_addr });
+            }
+        });
 
-        let writer = WriterLoop::new(writer, write_receiver).run();
-
-        // Wait for either the writer or the receiver to end, or a stop signal
-        select! {
-            () = writer => (),
-            _ = receiver => (),
-            _ = stop_rx => ()
+        Socket {
+            write_tx,
+            stop_tx: Some(stop_tx),
+            _receiver_type: PhantomData::default(),
         }
-        Self::on_end(end_handler, my_addr);
-
-        Ok(())
-    }
-
-    fn on_end<B: AHandler<SocketEnd>>(actor: Addr<B>, my_addr: SocketAddr) {
-        actor.do_send(SocketEnd { addr: my_addr })
-    }
-
-    fn on_read<A: AHandler<ReceivedPacket<T>>>(actor: Addr<A>, my_addr: SocketAddr) -> OnRead<T> {
-        Box::new(move |data: T| {
-            actor.do_send(ReceivedPacket {
-                data,
-                addr: my_addr,
-            });
-        })
     }
 }
 
-impl<T: Packet> Actor for Socket<T> {
+impl<S: PacketSend, R: PacketRecv> Actor for Socket<S, R> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -142,13 +165,13 @@ impl<T: Packet> Actor for Socket<T> {
     }
 }
 
-impl<T: Packet> Handler<SocketSend<T>> for Socket<T> {
+impl<S: PacketSend, R: PacketRecv> Handler<SocketSend<S>> for Socket<S, R> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
-    fn handle(&mut self, msg: SocketSend<T>, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: SocketSend<S>, _ctx: &mut Context<Self>) -> Self::Result {
         let (result_tx, result_rx) = oneshot::channel();
 
-        if let Err(e) = self.write_sender.send(WriterSend {
+        if let Err(e) = self.write_tx.send(WriterSend {
             data: msg.data,
             result: Some(result_tx),
         }) {
@@ -163,6 +186,7 @@ impl<T: Packet> Handler<SocketSend<T>> for Socket<T> {
 pub mod test_util {
     use std::{
         io,
+        marker::PhantomData,
         net::{IpAddr, SocketAddr},
         sync::{Arc, Mutex},
     };
@@ -171,8 +195,8 @@ pub mod test_util {
     use mockall::mock;
     use tokio::net::{tcp::OwnedReadHalf, unix::OwnedWriteHalf, ToSocketAddrs};
 
-    use super::SocketError;
-    use super::{Packet, ReceivedPacket, SocketEnd, SocketSend};
+    use super::{PacketRecv, PacketSend, SocketError};
+    use super::{ReceivedPacket, SocketEnd, SocketSend};
     use crate::AHandler;
 
     mock! {
@@ -201,19 +225,20 @@ pub mod test_util {
         NewBindedTo(IpAddr),
     }
 
-    pub struct MockSocket<T: Packet> {
-        pub sent: Arc<Mutex<Vec<SocketSend<T>>>>,
+    pub struct MockSocket<S: PacketSend, R: PacketRecv> {
+        pub sent: Arc<Mutex<Vec<SocketSend<S>>>>,
         fail: bool,
+        _type: PhantomData<R>,
     }
-    impl<T: Packet> Actor for MockSocket<T> {
+    impl<S: PacketSend, R: PacketRecv> Actor for MockSocket<S, R> {
         type Context = Context<Self>;
     }
-    impl<T: Packet> Handler<SocketSend<T>> for MockSocket<T> {
+    impl<S: PacketSend, R: PacketRecv> Handler<SocketSend<S>> for MockSocket<S, R> {
         type Result = Result<(), SocketError>;
 
         fn handle(
             &mut self,
-            msg: SocketSend<T>,
+            msg: SocketSend<S>,
             _ctx: &mut Context<Self>,
         ) -> Result<(), SocketError> {
             if self.fail {
@@ -223,8 +248,8 @@ pub mod test_util {
             Ok(())
         }
     }
-    impl<T: Packet> MockSocket<T> {
-        pub fn new<A: AHandler<ReceivedPacket<T>>, B: AHandler<SocketEnd>>(
+    impl<S: PacketSend, R: PacketRecv> MockSocket<S, R> {
+        pub fn new<A: AHandler<ReceivedPacket<R>>, B: AHandler<SocketEnd>>(
             _: Addr<A>,
             _: Addr<B>,
             _: SocketAddr,
@@ -233,14 +258,19 @@ pub mod test_util {
             Self::get(Arc::new(Mutex::new(Vec::new())))
         }
 
-        pub fn get(sent: Arc<Mutex<Vec<SocketSend<T>>>>) -> Self {
-            MockSocket { sent, fail: false }
+        pub fn get(sent: Arc<Mutex<Vec<SocketSend<S>>>>) -> Self {
+            MockSocket {
+                sent,
+                fail: false,
+                _type: PhantomData::default(),
+            }
         }
 
         pub fn get_failing() -> Self {
             MockSocket {
                 sent: Arc::new(Mutex::new(Vec::new())),
                 fail: true,
+                _type: PhantomData::default(),
             }
         }
     }
