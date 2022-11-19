@@ -21,10 +21,6 @@ use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePa
 pub mod messages;
 pub mod packet;
 
-pub trait TCPActorTrait: AHandler<SendPacket<Packet>> {}
-
-impl<A: AHandler<ReceivedPacket<Packet>>> TCPActorTrait for ConnectionHandler<A, Packet> {}
-
 pub trait PacketDispatcherTrait:
     AHandler<ReceivedPacket<Packet>>
     + AHandler<BroadcastMessage>
@@ -41,7 +37,7 @@ pub(crate) const SERVERS: [ServerId; 3] =
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
-    socket: Addr<ConnectionHandler<Self, Packet>>,
+    socket: Addr<ConnectionHandler<Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
     // TODO: Replace with a proper data structure containing
     // TODO: every user and their amount of points
@@ -61,7 +57,7 @@ impl PacketDispatcher {
             .collect();
 
         Self::create(|ctx| {
-            let socket = ConnectionHandler::new(ctx.address(), SocketAddr::from(my_id)).start();
+            let socket = ConnectionHandler::new(ctx.address().recipient(), SocketAddr::from(my_id)).start();
             let mut ret = Self {
                 server_id: my_id,
                 mutexes: HashMap::new(),
@@ -162,7 +158,7 @@ impl PacketDispatcher {
         &mut self,
         to: ServerId,
         data: Packet,
-    ) -> Request<ConnectionHandler<PacketDispatcher, Packet>, SendPacket<Packet>> {
+    ) -> Request<ConnectionHandler<Packet>, SendPacket<Packet>> {
         self.socket.send(SendPacket {
             to: to.into(),
             data,

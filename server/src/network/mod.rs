@@ -2,7 +2,8 @@
 use std::{collections::HashMap, net::SocketAddr};
 
 use actix::{
-    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
+    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, Recipient, ResponseActFuture,
+    WrapFuture,
 };
 use actix_rt::task::JoinHandle;
 
@@ -23,20 +24,19 @@ pub use common::socket::ReceivedPacket;
 #[cfg(not(test))]
 use common::socket::Stream;
 use common::socket::{PacketRecv, PacketSend, SocketEnd, SocketError};
-use common::AHandler;
 
 pub trait Packet: PacketSend + PacketRecv {}
 impl<T: PacketSend + PacketRecv> Packet for T {}
 
-pub struct ConnectionHandler<A: AHandler<ReceivedPacket<P>>, P: Packet> {
-    connections: HashMap<SocketAddr, Connection<Self, P>>,
-    received_handler: Addr<A>,
+pub struct ConnectionHandler<P: Packet> {
+    connections: HashMap<SocketAddr, Connection<P>>,
+    received_handler: Recipient<ReceivedPacket<P>>,
     join_listener: Option<JoinHandle<()>>,
     bind_to: SocketAddr,
 }
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> ConnectionHandler<A, P> {
-    pub fn new(received_handler: Addr<A>, bind_to: SocketAddr) -> Self {
+impl<P: Packet> ConnectionHandler<P> {
+    pub fn new(received_handler: Recipient<ReceivedPacket<P>>, bind_to: SocketAddr) -> Self {
         Self {
             connections: HashMap::new(),
             received_handler,
@@ -45,16 +45,21 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> ConnectionHandler<A, P> {
         }
     }
 
-    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<Self, P> {
+    fn get_connection(&mut self, this: Addr<Self>, addr: SocketAddr) -> &mut Connection<P> {
         let bind_to = self.bind_to.ip();
         let connection = self.connections.entry(addr).or_insert_with(move || {
-            Connection::new(this.clone(), this, addr, Stream::NewBindedTo(bind_to))
+            Connection::new(
+                this.clone().recipient(),
+                this.recipient(),
+                addr,
+                Stream::NewBindedTo(bind_to),
+            )
         });
         connection
     }
 }
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Actor for ConnectionHandler<A, P> {
+impl<P: Packet> Actor for ConnectionHandler<P> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -66,7 +71,7 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Actor for ConnectionHandler<A, P
 
 // Public messages
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for ConnectionHandler<A, P> {
+impl<P: Packet> Handler<SendPacket<P>> for ConnectionHandler<P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, msg: SendPacket<P>, ctx: &mut Context<Self>) -> Self::Result {
@@ -76,7 +81,7 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SendPacket<P>> for Conne
     }
 }
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<Listen> for ConnectionHandler<A, P> {
+impl<P: Packet> Handler<Listen> for ConnectionHandler<P> {
     type Result = ResponseActFuture<Self, Result<(), SocketError>>;
 
     fn handle(&mut self, _: Listen, _ctx: &mut Context<Self>) -> Self::Result {
@@ -89,16 +94,14 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<Listen> for ConnectionHa
         async move { Listener::bind(bind_to).await }
             .into_actor(self)
             .map(|listener, this, ctx| {
-                this.join_listener = Some(listener?.run(ctx.address()));
+                this.join_listener = Some(listener?.run(ctx.address().recipient()));
                 Ok(())
             })
             .boxed_local()
     }
 }
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<ReceivedPacket<P>>
-    for ConnectionHandler<A, P>
-{
+impl<P: Packet> Handler<ReceivedPacket<P>> for ConnectionHandler<P> {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPacket<P>, _ctx: &mut Context<Self>) -> Self::Result {
@@ -112,13 +115,13 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<ReceivedPacket<P>>
 
 // Private Messages
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<AddStream> for ConnectionHandler<A, P> {
+impl<P: Packet> Handler<AddStream> for ConnectionHandler<P> {
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
         let connection = Connection::new(
-            ctx.address(),
-            ctx.address(),
+            ctx.address().recipient(),
+            ctx.address().recipient(),
             msg.addr,
             Stream::Existing(msg.stream),
         );
@@ -126,7 +129,7 @@ impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<AddStream> for Connectio
     }
 }
 
-impl<A: AHandler<ReceivedPacket<P>>, P: Packet> Handler<SocketEnd> for ConnectionHandler<A, P> {
+impl<P: Packet> Handler<SocketEnd> for ConnectionHandler<P> {
     type Result = ();
 
     fn handle(&mut self, msg: SocketEnd, _ctx: &mut Self::Context) {
@@ -166,7 +169,7 @@ mod tests {
         }
     }
 
-    type CH = ConnectionHandler<Receiver<Vec<u8>>, Vec<u8>>;
+    type CH = ConnectionHandler<Vec<u8>>;
     macro_rules! local {
         () => {
             SocketAddr::from(([127, 0, 0, 1], 25000))
@@ -188,14 +191,14 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn: Connection<Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
                 .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -203,8 +206,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
@@ -239,7 +242,7 @@ mod tests {
 
         sys.block_on(async move {
             let r_addr = receiver.start();
-            let handler = ConnectionHandler::new(r_addr, local!()).start();
+            let handler = ConnectionHandler::new(r_addr.recipient(), local!()).start();
 
             handler
                 .send(ReceivedPacket { addr, data: data_c })
@@ -269,7 +272,7 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn: Connection<Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_send()
                 .times(1)
@@ -279,8 +282,8 @@ mod tests {
                 .times(1)
                 .with(eq(data_1))
                 .returning(|_| Box::pin(async { Ok(()) }));
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -288,8 +291,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
@@ -337,14 +340,14 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn: Connection<Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(2).return_const(());
             conn.expect_send()
                 .times(1)
                 .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -352,8 +355,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
@@ -399,14 +402,14 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn: Connection<Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
                 .with(eq(data))
                 .returning(|_| Box::pin(async { Err(SocketError::new("Mock failed")) }));
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -414,8 +417,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
@@ -447,9 +450,9 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let conn: Connection<CH, Vec<u8>> = Connection::default();
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let conn: Connection<Vec<u8>> = Connection::default();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn];
 
@@ -457,8 +460,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::Existing(_))),
                 )
@@ -494,21 +497,21 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let mut conn: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn: Connection<Vec<u8>> = Connection::default();
             conn.expect_restart_timeout().times(1).return_const(());
             conn.expect_send()
                 .times(1)
                 .with(eq(data))
                 .returning(|_| Box::pin(async { Ok(()) }));
-            let mut conn_1: Connection<CH, Vec<u8>> = Connection::default();
+            let mut conn_1: Connection<Vec<u8>> = Connection::default();
             conn_1.expect_restart_timeout().times(1).return_const(());
             conn_1
                 .expect_send()
                 .times(1)
                 .with(eq(data_1))
                 .returning(|_| Box::pin(async { Ok(()) }));
-            let guard = connection_new_context::<CH, Vec<u8>>();
-            let handler = ConnectionHandler::new(receiver, local!()).start();
+            let guard = connection_new_context::<Vec<u8>>();
+            let handler = ConnectionHandler::new(receiver.recipient(), local!()).start();
             let handler_c = handler.clone();
             let mut conn_v = vec![conn, conn_1];
 
@@ -516,8 +519,8 @@ mod tests {
                 .ctx
                 .expect()
                 .with(
-                    eq(handler_c.clone()),
-                    eq(handler_c),
+                    eq(handler_c.clone().recipient()),
+                    eq(handler_c.recipient()),
                     eq(addr),
                     function(|s: &Stream| matches!(s, Stream::NewBindedTo(_))),
                 )
@@ -564,11 +567,11 @@ mod tests {
         sys.block_on(async move {
             let receiver = receiver.start();
             let mut listener: Listener = Listener::default();
-            let handler = ConnectionHandler::new(receiver, addr).start();
+            let handler = ConnectionHandler::new(receiver.recipient(), addr).start();
             listener
                 .expect_run()
                 .times(1)
-                .with(eq(handler.clone()))
+                .with(eq(handler.clone().recipient()))
                 .returning(|_| actix_rt::spawn(async {}));
             let guard = listener_new_context();
             let mut listener_v = vec![listener];
@@ -598,7 +601,7 @@ mod tests {
 
         sys.block_on(async move {
             let receiver = receiver.start();
-            let handler = ConnectionHandler::new(receiver, addr).start();
+            let handler = ConnectionHandler::new(receiver.recipient(), addr).start();
             let guard = listener_new_context();
 
             guard

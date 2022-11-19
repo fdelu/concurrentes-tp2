@@ -1,11 +1,10 @@
 use std::io;
 
-use actix::Addr;
+use actix::Recipient;
 #[cfg(not(test))]
 use actix_rt::net::TcpListener;
 #[cfg(test)]
 use common::socket::test_util::MockTcpListener as TcpListener;
-use common::AHandler;
 use tokio::{
     net::ToSocketAddrs,
     task::{spawn, JoinHandle},
@@ -27,16 +26,16 @@ impl Listener {
         Ok(Self { listener })
     }
 
-    async fn add_connection<A: AHandler<AddStream>>(
+    async fn add_connection(
         listener: &mut TcpListener,
-        handler: &Addr<A>,
+        handler: &Recipient<AddStream>,
     ) -> Result<(), SocketError> {
         let (stream, addr) = listener.accept().await?;
         handler.send(AddStream { stream, addr }).await?;
         Ok(())
     }
 
-    pub fn run<A: AHandler<AddStream>>(mut self, add_handler: Addr<A>) -> JoinHandle<()> {
+    pub fn run(mut self, add_handler: Recipient<AddStream>) -> JoinHandle<()> {
         spawn(async move {
             loop {
                 if let Err(e) = Self::add_connection(&mut self.listener, &add_handler).await {

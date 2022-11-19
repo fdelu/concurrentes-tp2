@@ -32,8 +32,13 @@ impl OrderProcessor {
     ///constructor de OrderProcessor, recibe la direccion del servidor
     pub fn new(server_addr: SocketAddr) -> Addr<Self> {
         Self::create(move |ctx| Self {
-            server_socket: Socket::new(ctx.address(), ctx.address(), server_addr, Stream::New)
-                .start(),
+            server_socket: Socket::new(
+                ctx.address().recipient(),
+                ctx.address().recipient(),
+                server_addr,
+                Stream::New,
+            )
+            .start(),
             active_coffees: HashMap::new(),
             next_tx_id: 0,
         })

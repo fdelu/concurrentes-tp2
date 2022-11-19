@@ -189,8 +189,8 @@ mod test {
 
         let join_handle = actix_rt::spawn(async move {
             let socket = Socket::new(
-                server_mock.clone(),
-                server_mock,
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
                 server_addr,
                 Stream::Existing(listener.accept().await.unwrap().0),
             )
@@ -231,8 +231,8 @@ mod test {
 
         let join_handle = actix_rt::spawn(async move {
             let socket = Socket::new(
-                server_mock.clone(),
-                server_mock,
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
                 server_addr,
                 Stream::Existing(listener.accept().await.unwrap().0),
             )

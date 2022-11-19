@@ -3,8 +3,7 @@ use std::io;
 use std::marker::{PhantomData, Send};
 use std::net::{IpAddr, SocketAddr};
 
-use crate::AHandler;
-use actix::{Actor, Addr, Context, Handler, ResponseActFuture, WrapFuture};
+use actix::{Actor, Context, Handler, Recipient, ResponseActFuture, WrapFuture};
 #[cfg(not(test))]
 type TcpSocket = actix_rt::net::TcpSocket;
 #[cfg(not(test))]
@@ -52,15 +51,13 @@ pub struct Socket<S: PacketSend, R: PacketRecv> {
     _receiver_type: PhantomData<R>,
 }
 
-struct SocketRunner<A, B, R, S>
+struct SocketRunner<R, S>
 where
     R: PacketRecv,
-    A: AHandler<ReceivedPacket<R>>,
-    B: AHandler<SocketEnd>,
     S: PacketSend,
 {
-    received_handler: Addr<A>,
-    end_handler: Addr<B>,
+    received_handler: Recipient<ReceivedPacket<R>>,
+    end_handler: Recipient<SocketEnd>,
     stop_rx: oneshot::Receiver<()>,
     stream: Stream,
     socket_addr: SocketAddr,
@@ -68,11 +65,9 @@ where
     _receiver_type: PhantomData<R>,
 }
 
-impl<A, B, R, S> SocketRunner<A, B, R, S>
+impl<R, S> SocketRunner<R, S>
 where
     R: PacketRecv,
-    A: AHandler<ReceivedPacket<R>>,
-    B: AHandler<SocketEnd>,
     S: PacketSend,
 {
     async fn run(self) -> Result<(), SocketError> {
@@ -119,16 +114,12 @@ where
 }
 
 impl<S: PacketSend, R: PacketRecv> Socket<S, R> {
-    pub fn new<A, B>(
-        received_handler: Addr<A>,
-        end_handler: Addr<B>,
+    pub fn new(
+        received_handler: Recipient<ReceivedPacket<R>>,
+        end_handler: Recipient<SocketEnd>,
         socket_addr: SocketAddr,
         stream: Stream,
-    ) -> Socket<S, R>
-    where
-        A: AHandler<ReceivedPacket<R>>,
-        B: AHandler<SocketEnd>,
-    {
+    ) -> Socket<S, R> {
         let (write_tx, write_rx) = unbounded_channel();
         let end_h = end_handler.clone();
 
@@ -193,13 +184,12 @@ pub mod test_util {
         sync::{Arc, Mutex},
     };
 
-    use actix::{Actor, Addr, Context, Handler};
+    use actix::{Actor, Context, Handler, Recipient};
     use mockall::mock;
     use tokio::net::{tcp::OwnedReadHalf, unix::OwnedWriteHalf, ToSocketAddrs};
 
     use super::{PacketRecv, PacketSend, SocketError};
     use super::{ReceivedPacket, SocketEnd, SocketSend};
-    use crate::AHandler;
 
     mock! {
         pub TcpSocket {
@@ -252,9 +242,9 @@ pub mod test_util {
         }
     }
     impl<S: PacketSend, R: PacketRecv> MockSocket<S, R> {
-        pub fn new<A: AHandler<ReceivedPacket<R>>, B: AHandler<SocketEnd>>(
-            _: Addr<A>,
-            _: Addr<B>,
+        pub fn new(
+            _: Recipient<ReceivedPacket<R>>,
+            _: Recipient<SocketEnd>,
             _: SocketAddr,
             _: MockStream,
         ) -> Self {
