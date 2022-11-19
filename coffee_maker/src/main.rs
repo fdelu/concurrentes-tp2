@@ -19,7 +19,7 @@ pub async fn start_coffee_maker(path: &str) {
     info!("started coffee making");
     let server_addr = SocketAddr::from(([127, 0, 0, 1], 34255));
     let order_actor = OrderProcessor::new(server_addr);
-    let maker_actor = CoffeeMaker::new(order_actor);
+    let maker_actor = CoffeeMaker::new(order_actor, 15);
 
     maker_actor
         .send(ReadOrdersFrom {

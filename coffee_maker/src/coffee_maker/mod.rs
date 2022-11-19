@@ -22,6 +22,7 @@ use self::order::Order;
 
 pub struct CoffeeMaker<O: OrderProcessorTrait> {
     order_processor: Addr<O>,
+    fail_probability: i32,
 }
 
 impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
@@ -29,8 +30,12 @@ impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
 }
 
 impl<O: OrderProcessorTrait> CoffeeMaker<O> {
-    pub fn new(order_processor: Addr<O>) -> Addr<Self> {
-        Self { order_processor }.start()
+    pub fn new(order_processor: Addr<O>, fail_probability: i32) -> Addr<Self> {
+        Self {
+            order_processor,
+            fail_probability,
+        }
+        .start()
     }
 
     ///checks the type of order
@@ -53,10 +58,10 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     }
 
     /// Prepares coffee, the time it takes is random and theres a chance to fail.
-    async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId) {
+    async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId, fail_probability: i32) {
         let mut rng = rand::thread_rng();
         sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
-        if rng.gen_range(0..100) < 15 {
+        if rng.gen_range(0..100) < fail_probability {
             warn!("Failed preparing coffee: {}", coffee.name);
             processor.do_send(AbortOrder {
                 transaction_id: tx_id,
@@ -94,7 +99,8 @@ impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
 
     fn handle(&mut self, msg: MakeCoffee, _ctx: &mut Context<Self>) -> Self::Result {
         let addr = self.order_processor.clone();
-        async move { CoffeeMaker::make_coffee(addr, msg.coffee, msg.tx_id).await }
+        let fail_probability = self.fail_probability;
+        async move { CoffeeMaker::make_coffee(addr, msg.coffee, msg.tx_id, fail_probability).await }
             .into_actor(self)
             .boxed_local()
     }
@@ -102,166 +108,224 @@ impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
 
 #[cfg(test)]
 mod test {
-    use crate::start_coffee_maker;
-    use std::io::prelude::*;
-    use std::net::TcpListener;
-    use std::net::TcpStream;
+    use super::CoffeeMaker;
+    use super::ReadOrdersFrom;
+    use crate::order_processor::OrderProcessor;
+    use actix_rt::net::{TcpListener, TcpStream};
+    use common::packet::{ClientPacket, ServerPacket};
+    use std::fs::File;
+    use std::net::SocketAddr;
     use std::{thread, time};
-    // use futures::join;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    fn assert_order_ready(stream: &mut TcpStream, id: u8, cost: u8) {
-        let mut buf = [0_u8; 3];
-        let _ = stream.read(&mut buf).unwrap();
-        assert_eq!(buf, ['p' as u8, id, cost]);
+    async fn order_ready_server(stream: &mut TcpStream, id: u32, cost: u32, orders: &mut Vec<u32>) {
+        println!("reading");
+        let (read_stream, mut write_stream) = stream.split();
+        let mut buf = String::new();
+        let mut stream_buf = BufReader::new(read_stream);
+        let _ = stream_buf
+            .read_line(&mut buf)
+            .await
+            .expect("unable to read");
+        let message: ClientPacket = serde_json::from_slice(buf.as_bytes()).unwrap();
+        match message {
+            ClientPacket::PrepareOrder(user_id, amount, tx_id) => {
+                println!("recieved prepare");
 
-        let response = [b'r'];
-        let _ = stream.write(&response).unwrap();
+                assert_eq!(user_id, id);
+                assert_eq!(amount, cost);
+                let packet = ServerPacket::Ready(tx_id);
+                let mut to_send = serde_json::to_vec(&packet).unwrap();
+                to_send.push(b'\n');
+                write_stream.write_all(&to_send).await.unwrap();
+                orders.push(tx_id);
+            }
+            ClientPacket::CommitOrder(tx_id) => {
+                let index = orders
+                    .iter()
+                    .position(|x| *x == tx_id)
+                    .expect(&format!("commit for non existent prepare id: {}", tx_id)[..]);
+                orders.remove(index);
 
-        let mut buf2 = [0_u8; 1];
-        let _ = stream.read(&mut buf2).unwrap();
-        assert!(buf2 == [b'c'] || buf2 == [b'a']);
+                println!("recieved commit");
+            }
+            _ => panic!("incorrect packet at prepare"),
+        };
     }
 
-    #[test]
-    fn test_one_order() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34235").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-
-            assert_order_ready(&mut stream, 3 as u8, 5 as u8);
-        });
-
-        thread::sleep(time::Duration::from_millis(100));
-        start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34235");
-
-        join_handle.join().unwrap();
-    }
-
-    #[test]
-    fn test_repeated_order() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34234").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-            for _ in 0..10 {
-                assert_order_ready(&mut stream, 3 as u8, 5 as u8);
+    #[actix_rt::test]
+    async fn test_one_order() {
+        let join_handle = tokio::spawn(async move {
+            let listener = TcpListener::bind("127.0.0.1:34234").await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut orders: Vec<u32> = Vec::new();
+            for _ in 0..2 {
+                order_ready_server(&mut stream, 3, 5, &mut orders).await;
+            }
+            if !orders.is_empty() {
+                panic!("a transaction did not commit");
             }
         });
 
         thread::sleep(time::Duration::from_millis(100));
-        start_coffee_maker("./src/orders/repeated_order.csv", "127.0.0.1:34234");
+        let file = File::open("./src/orders/one_order.csv").unwrap();
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 34234));
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 0);
 
-        join_handle.join().unwrap();
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom {
+                reader: Box::new(file),
+            })
+            .await
+            .expect("Failed to send file to CoffeMaker");
+
+        join_handle.await.unwrap();
     }
 
-    #[test]
-    fn test_one_recharge() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34233").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-
-            let mut buf = [0_u8; 3];
-            let _ = stream.read(&mut buf).unwrap();
-            assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
-
-            let response = [b'o'];
-            let _ = stream.write(&response).unwrap();
+    #[actix_rt::test]
+    async fn test_repeated_order() {
+        //TODO check this test
+        let join_handle = tokio::spawn(async move {
+            let listener = TcpListener::bind("127.0.0.1:34233").await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut orders: Vec<u32> = Vec::new();
+            for i in 0..20 {
+                println!("iteration: {}", i);
+                order_ready_server(&mut stream, 3, 5, &mut orders).await;
+            }
+            if !orders.is_empty() {
+                panic!("a transaction did not commit");
+            }
         });
 
         thread::sleep(time::Duration::from_millis(100));
-        start_coffee_maker("./src/orders/one_recharge.csv", "127.0.0.1:34233");
+        let file = File::open("./src/orders/repeated_order.csv").unwrap();
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 34233));
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 0);
 
-        join_handle.join().unwrap();
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom {
+                reader: Box::new(file),
+            })
+            .await
+            .expect("Failed to send file to CoffeMaker");
+
+        join_handle.await.unwrap();
     }
 
-    #[test]
-    fn test_diff_orders() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34232").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
+    // #[test]
+    // fn test_one_recharge() {
+    //     let join_handle = thread::spawn(|| {
+    //         let listener = TcpListener::bind("127.0.0.1:34233").unwrap();
+    //         let (mut stream, _) = listener.accept().unwrap();
 
-            assert_order_ready(&mut stream, 3 as u8, 5 as u8);
+    //         let mut buf = [0_u8; 3];
+    //         let _ = stream.read(&mut buf).unwrap();
+    //         assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
 
-            let mut buf = [0_u8; 3];
-            let _ = stream.read(&mut buf).unwrap();
-            assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
+    //         let response = [b'o'];
+    //         let _ = stream.write(&response).unwrap();
+    //     });
 
-            let response = [b'o'];
-            let _ = stream.write(&response).unwrap();
+    //     thread::sleep(time::Duration::from_millis(100));
+    //     start_coffee_maker("./src/orders/one_recharge.csv", "127.0.0.1:34233");
 
-            assert_order_ready(&mut stream, 100 as u8, 3 as u8);
+    //     join_handle.join().unwrap();
+    // }
 
-            assert_order_ready(&mut stream, 5 as u8, 12 as u8);
+    // #[test]
+    // fn test_diff_orders() {
+    //     let join_handle = thread::spawn(|| {
+    //         let listener = TcpListener::bind("127.0.0.1:34232").unwrap();
+    //         let (mut stream, _) = listener.accept().unwrap();
 
-            let mut buf = [0_u8; 3];
-            let _ = stream.read(&mut buf).unwrap();
-            assert_eq!(buf, ['m' as u8, 12 as u8, 20 as u8]);
+    //         assert_order_ready(&mut stream, 3 as u8, 5 as u8);
 
-            let response = [b'o'];
-            let _ = stream.write(&response).unwrap();
-        });
+    //         let mut buf = [0_u8; 3];
+    //         let _ = stream.read(&mut buf).unwrap();
+    //         assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
 
-        thread::sleep(time::Duration::from_millis(100));
-        start_coffee_maker("./src/orders/diff_orders.csv", "127.0.0.1:34232");
+    //         let response = [b'o'];
+    //         let _ = stream.write(&response).unwrap();
 
-        join_handle.join().unwrap();
-    }
+    //         assert_order_ready(&mut stream, 100 as u8, 3 as u8);
 
-    async fn assert_order_ready_async(stream: &mut TcpStream, id: u8, cost: u8, debug: i32) {
-        if debug == 1 {
-            tokio::time::sleep(time::Duration::from_millis(100)).await;
-        }
-        let mut buf = [0_u8; 3];
-        let _ = stream.read(&mut buf).unwrap();
-        assert_eq!(buf, ['p' as u8, id, cost]);
+    //         assert_order_ready(&mut stream, 5 as u8, 12 as u8);
 
-        let response = [b'r'];
-        let _ = stream.write(&response).unwrap();
+    //         let mut buf = [0_u8; 3];
+    //         let _ = stream.read(&mut buf).unwrap();
+    //         assert_eq!(buf, ['m' as u8, 12 as u8, 20 as u8]);
 
-        let mut buf2 = [0_u8; 1];
-        let _ = stream.read(&mut buf2).unwrap();
-        assert!(buf2 == [b'c'] || buf2 == [b'a']);
-    }
+    //         let response = [b'o'];
+    //         let _ = stream.write(&response).unwrap();
+    //     });
 
-    #[tokio::main]
-    async fn split_processing(mut stream: &mut TcpStream, mut stream2: &mut TcpStream) {
-        let fut1 = assert_order_ready_async(&mut stream, 3 as u8, 5 as u8, 1);
-        let fut2 = assert_order_ready_async(&mut stream2, 3 as u8, 5 as u8, 2);
-        tokio::join!(fut1, fut2);
-    }
+    //     thread::sleep(time::Duration::from_millis(100));
+    //     start_coffee_maker("./src/orders/diff_orders.csv", "127.0.0.1:34232");
 
-    #[test]
-    fn test_two_coffee_makers() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34231").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-            let (mut stream2, _) = listener.accept().unwrap();
-            split_processing(&mut stream, &mut stream2);
-        });
+    //     join_handle.join().unwrap();
+    // }
 
-        thread::sleep(time::Duration::from_millis(100));
-        let join_handle2 = thread::spawn(|| {
-            start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
-        });
-        start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
+    // async fn assert_order_ready_async(stream: &mut TcpStream, id: u8, cost: u8, debug: i32) {
+    //     if debug == 1 {
+    //         tokio::time::sleep(time::Duration::from_millis(100)).await;
+    //     }
+    //     let mut buf = [0_u8; 3];
+    //     let _ = stream.read(&mut buf).unwrap();
+    //     assert_eq!(buf, ['p' as u8, id, cost]);
 
-        join_handle.join().unwrap();
-        join_handle2.join().unwrap();
-    }
+    //     let response = [b'r'];
+    //     let _ = stream.write(&response).unwrap();
 
-    #[test]
-    fn test_wrong_message() {
-        let join_handle = thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:34230").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
+    //     let mut buf2 = [0_u8; 1];
+    //     let _ = stream.read(&mut buf2).unwrap();
+    //     assert!(buf2 == [b'c'] || buf2 == [b'a']);
+    // }
 
-            let mut buf = [0_u8; 3];
-            let _ = stream.read(&mut buf).unwrap();
-            assert_eq!(buf, ['p' as u8, 3 as u8, 5 as u8]);
-        });
+    // #[tokio::main]
+    // async fn split_processing(mut stream: &mut TcpStream, mut stream2: &mut TcpStream) {
+    //     let fut1 = assert_order_ready_async(&mut stream, 3 as u8, 5 as u8, 1);
+    //     let fut2 = assert_order_ready_async(&mut stream2, 3 as u8, 5 as u8, 2);
+    //     tokio::join!(fut1, fut2);
+    // }
 
-        thread::sleep(time::Duration::from_millis(100));
-        start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34230");
+    // #[test]
+    // fn test_two_coffee_makers() {
+    //     let join_handle = thread::spawn(|| {
+    //         let listener = TcpListener::bind("127.0.0.1:34231").unwrap();
+    //         let (mut stream, _) = listener.accept().unwrap();
+    //         let (mut stream2, _) = listener.accept().unwrap();
+    //         split_processing(&mut stream, &mut stream2);
+    //     });
 
-        join_handle.join().unwrap();
-    }
+    //     thread::sleep(time::Duration::from_millis(100));
+    //     let join_handle2 = thread::spawn(|| {
+    //         start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
+    //     });
+    //     start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
+
+    //     join_handle.join().unwrap();
+    //     join_handle2.join().unwrap();
+    // }
+
+    // #[test]
+    // fn test_wrong_message() {
+    //     let join_handle = thread::spawn(|| {
+    //         let listener = TcpListener::bind("127.0.0.1:34230").unwrap();
+    //         let (mut stream, _) = listener.accept().unwrap();
+
+    //         let mut buf = [0_u8; 3];
+    //         let _ = stream.read(&mut buf).unwrap();
+    //         assert_eq!(buf, ['p' as u8, 3 as u8, 5 as u8]);
+    //     });
+
+    //     thread::sleep(time::Duration::from_millis(100));
+    //     start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34230");
+
+    //     join_handle.join().unwrap();
+    // }
 }
