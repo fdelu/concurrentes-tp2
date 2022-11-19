@@ -109,42 +109,40 @@ impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
 mod test {
     use super::CoffeeMaker;
     use super::ReadOrdersFrom;
-    use crate::log::init;
     use crate::order_processor::OrderProcessor;
-    use actix_rt::net::{TcpListener, TcpStream};
+    use actix::Actor;
+    use actix::Addr;
+    use actix::Context;
+    use actix::Handler;
+    use actix_rt::net::TcpListener;
     use common::packet::{ClientPacket, ServerPacket};
+    use common::socket::ReceivedPacket;
     use common::socket::Socket;
+    use common::socket::SocketEnd;
+    use common::socket::SocketSend;
+    use common::socket::Stream;
     use std::fs::File;
     use std::net::SocketAddr;
-    use std::{thread, time};
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::tcp::OwnedReadHalf;
-    use tokio::net::tcp::OwnedWriteHalf;
+    use tokio::sync::mpsc::unbounded_channel;
+    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::UnboundedSender;
 
     async fn order_ready_server(
-        read_stream: &mut BufReader<OwnedReadHalf>,
-        write_stream: &mut OwnedWriteHalf,
+        rx: &mut UnboundedReceiver<ClientPacket>,
+        socket: &Addr<Socket<ServerPacket, ClientPacket>>,
         id: u32,
         cost: u32,
         orders: &mut Vec<u32>,
     ) {
         println!("reading");
-        let mut buf = String::new();
-        let _ = read_stream
-            .read_line(&mut buf)
-            .await
-            .expect("unable to read");
-        let message: ClientPacket = serde_json::from_slice(buf.as_bytes()).unwrap();
-        match message {
+        match rx.recv().await.unwrap() {
             ClientPacket::PrepareOrder(user_id, amount, tx_id) => {
                 println!("recieved prepare");
 
                 assert_eq!(user_id, id);
                 assert_eq!(amount, cost);
                 let packet = ServerPacket::Ready(tx_id);
-                let mut to_send = serde_json::to_vec(&packet).unwrap();
-                to_send.push(b'\n');
-                write_stream.write_all(&to_send).await.unwrap();
+                socket.do_send(SocketSend { data: packet });
                 orders.push(tx_id);
             }
             ClientPacket::CommitOrder(tx_id) => {
@@ -158,6 +156,26 @@ mod test {
             }
             _ => panic!("incorrect packet at prepare"),
         };
+        println!("done")
+    }
+
+    struct ServerMock {
+        sender: UnboundedSender<ClientPacket>,
+    }
+    impl Actor for ServerMock {
+        type Context = Context<Self>;
+    }
+    impl Handler<ReceivedPacket<ClientPacket>> for ServerMock {
+        type Result = ();
+
+        fn handle(&mut self, packet: ReceivedPacket<ClientPacket>, _ctx: &mut Context<Self>) {
+            self.sender.send(packet.data).unwrap();
+        }
+    }
+    impl Handler<SocketEnd> for ServerMock {
+        type Result = ();
+
+        fn handle(&mut self, _packet: SocketEnd, _ctx: &mut Context<Self>) {}
     }
 
     #[actix_rt::test]
@@ -166,20 +184,27 @@ mod test {
         let listener = TcpListener::bind(addr).await.unwrap();
         let server_addr = listener.local_addr().unwrap();
 
-        let join_handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (read_stream, mut write_stream) = stream.into_split();
-            let mut reader = BufReader::new(read_stream);
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
+
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone(),
+                server_mock,
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
+
             let mut orders: Vec<u32> = Vec::new();
             for _ in 0..2 {
-                order_ready_server(&mut reader, &mut write_stream, 3, 5, &mut orders).await;
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders).await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
             }
         });
 
-        thread::sleep(time::Duration::from_millis(100));
         let file = File::open("./src/orders/one_order.csv").unwrap();
         let order_actor = OrderProcessor::new(server_addr);
         let maker_actor = CoffeeMaker::new(order_actor, 0);
@@ -201,21 +226,28 @@ mod test {
         let listener = TcpListener::bind(addr).await.unwrap();
         let server_addr = listener.local_addr().unwrap();
 
-        let join_handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (read_stream, mut write_stream) = stream.into_split();
-            let mut reader = BufReader::new(read_stream);
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
+
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone(),
+                server_mock,
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
+
             let mut orders: Vec<u32> = Vec::new();
             for i in 0..20 {
                 println!("iteration: {}", i);
-                order_ready_server(&mut reader, &mut write_stream, 3, 5, &mut orders).await;
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders).await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
             }
         });
 
-        thread::sleep(time::Duration::from_millis(100));
         let file = File::open("./src/orders/repeated_order.csv").unwrap();
 
         let order_actor = OrderProcessor::new(server_addr);

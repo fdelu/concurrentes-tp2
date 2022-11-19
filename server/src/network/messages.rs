@@ -24,11 +24,9 @@ pub struct SendPacket<T: Serialize> {
 #[rtype(result = "Result<(), SocketError>")]
 pub struct Listen {}
 
-// Private messages
-
 #[derive(Message)]
 #[rtype(result = "()")]
-pub(crate) struct AddStream {
+pub struct AddStream {
     pub addr: SocketAddr,
     pub stream: TcpStream,
 }

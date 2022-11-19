@@ -36,7 +36,7 @@ impl Listener {
         Ok(())
     }
 
-    pub(crate) fn run<A: AHandler<AddStream>>(mut self, add_handler: Addr<A>) -> JoinHandle<()> {
+    pub fn run<A: AHandler<AddStream>>(mut self, add_handler: Addr<A>) -> JoinHandle<()> {
         spawn(async move {
             loop {
                 if let Err(e) = Self::add_connection(&mut self.listener, &add_handler).await {
