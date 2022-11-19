@@ -43,7 +43,7 @@ impl<T: DeserializeOwned + Send + Sync + Unpin + 'static> PacketRecv for T {}
 pub enum Stream {
     Existing(TcpStream),
     NewBindedTo(IpAddr),
-    New(),
+    New,
 }
 
 pub struct Socket<S: PacketSend, R: PacketRecv> {
@@ -80,7 +80,7 @@ where
         let stream = match self.stream {
             Stream::Existing(stream) => stream,
             Stream::NewBindedTo(bind_to) => Self::new_tcp_stream(bind_to, self.socket_addr).await?,
-            Stream::New() => TcpStream::connect(self.socket_addr).await?,
+            Stream::New => TcpStream::connect(self.socket_addr).await?,
         };
         let (reader, writer) = stream.into_split();
 
@@ -225,6 +225,7 @@ pub mod test_util {
     pub enum MockStream {
         Existing(MockTcpStream),
         NewBindedTo(IpAddr),
+        New,
     }
 
     pub struct MockSocket<S: PacketSend, R: PacketRecv> {

@@ -42,7 +42,6 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     fn process_order(&self, order: String, ctx: &Context<Self>) {
         match order.parse::<Order>() {
             Ok(Order::Sale(coffee)) => {
-                // TODO
                 self.order_processor.do_send(PrepareOrder {
                     coffee,
                     maker: ctx.address().recipient(),
@@ -110,20 +109,28 @@ impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
 mod test {
     use super::CoffeeMaker;
     use super::ReadOrdersFrom;
+    use crate::log::init;
     use crate::order_processor::OrderProcessor;
     use actix_rt::net::{TcpListener, TcpStream};
     use common::packet::{ClientPacket, ServerPacket};
+    use common::socket::Socket;
     use std::fs::File;
     use std::net::SocketAddr;
     use std::{thread, time};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::tcp::OwnedReadHalf;
+    use tokio::net::tcp::OwnedWriteHalf;
 
-    async fn order_ready_server(stream: &mut TcpStream, id: u32, cost: u32, orders: &mut Vec<u32>) {
+    async fn order_ready_server(
+        read_stream: &mut BufReader<OwnedReadHalf>,
+        write_stream: &mut OwnedWriteHalf,
+        id: u32,
+        cost: u32,
+        orders: &mut Vec<u32>,
+    ) {
         println!("reading");
-        let (read_stream, mut write_stream) = stream.split();
         let mut buf = String::new();
-        let mut stream_buf = BufReader::new(read_stream);
-        let _ = stream_buf
+        let _ = read_stream
             .read_line(&mut buf)
             .await
             .expect("unable to read");
@@ -155,12 +162,17 @@ mod test {
 
     #[actix_rt::test]
     async fn test_one_order() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+
         let join_handle = tokio::spawn(async move {
-            let listener = TcpListener::bind("127.0.0.1:34234").await.unwrap();
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read_stream, mut write_stream) = stream.into_split();
+            let mut reader = BufReader::new(read_stream);
             let mut orders: Vec<u32> = Vec::new();
             for _ in 0..2 {
-                order_ready_server(&mut stream, 3, 5, &mut orders).await;
+                order_ready_server(&mut reader, &mut write_stream, 3, 5, &mut orders).await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
@@ -169,7 +181,6 @@ mod test {
 
         thread::sleep(time::Duration::from_millis(100));
         let file = File::open("./src/orders/one_order.csv").unwrap();
-        let server_addr = SocketAddr::from(([127, 0, 0, 1], 34234));
         let order_actor = OrderProcessor::new(server_addr);
         let maker_actor = CoffeeMaker::new(order_actor, 0);
 
@@ -186,14 +197,18 @@ mod test {
 
     #[actix_rt::test]
     async fn test_repeated_order() {
-        //TODO check this test
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+
         let join_handle = tokio::spawn(async move {
-            let listener = TcpListener::bind("127.0.0.1:34233").await.unwrap();
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read_stream, mut write_stream) = stream.into_split();
+            let mut reader = BufReader::new(read_stream);
             let mut orders: Vec<u32> = Vec::new();
             for i in 0..20 {
                 println!("iteration: {}", i);
-                order_ready_server(&mut stream, 3, 5, &mut orders).await;
+                order_ready_server(&mut reader, &mut write_stream, 3, 5, &mut orders).await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
@@ -202,7 +217,7 @@ mod test {
 
         thread::sleep(time::Duration::from_millis(100));
         let file = File::open("./src/orders/repeated_order.csv").unwrap();
-        let server_addr = SocketAddr::from(([127, 0, 0, 1], 34233));
+
         let order_actor = OrderProcessor::new(server_addr);
         let maker_actor = CoffeeMaker::new(order_actor, 0);
 
