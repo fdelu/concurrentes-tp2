@@ -22,6 +22,6 @@
     "logs": {
         "files_directory": "logs",
         "file_log_level": "info",
-        "stdout_log_level": "sdfds"
+        "stdout_log_level": "trace"
     }
 }

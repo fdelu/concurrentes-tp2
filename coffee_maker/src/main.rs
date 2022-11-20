@@ -18,7 +18,7 @@ use common::log::init_logger;
 pub async fn start_coffee_maker(cfg: &Config) {
     info!("Initializing...");
     let order_actor = OrderProcessor::new(cfg.server_ip);
-    let maker_actor = CoffeeMaker::new(order_actor, 15);
+    let maker_actor = CoffeeMaker::new(order_actor, cfg.fail_probability);
 
     info!("Reading orders from {}", cfg.order_from);
 
