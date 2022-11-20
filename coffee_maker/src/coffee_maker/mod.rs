@@ -152,23 +152,66 @@ mod test {
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::mpsc::UnboundedSender;
 
+    struct RequieredMessages {
+        prepare_expected: u32,
+        commit_expected: u32,
+        add_points_expected: u32,
+        prepare_real: u32,
+        commit_real: u32,
+        add_points_real: u32,
+    }
+
+    impl RequieredMessages {
+        fn new(prepare: u32, commit: u32, add_points: u32) -> RequieredMessages {
+            RequieredMessages {
+                prepare_expected: prepare,
+                commit_expected: commit,
+                add_points_expected: add_points,
+                prepare_real: 0,
+                commit_real: 0,
+                add_points_real: 0,
+            }
+        }
+
+        fn add_prepare(&mut self) {
+            self.prepare_real += 1;
+        }
+
+        fn add_commit(&mut self) {
+            self.commit_real += 1;
+        }
+
+        fn add_add_points(&mut self) {
+            self.add_points_real += 1;
+        }
+
+        fn check(&self) {
+            assert_eq!(self.prepare_expected, self.prepare_real);
+            assert_eq!(self.commit_expected, self.commit_real);
+            assert_eq!(self.add_points_expected, self.add_points_real);
+        }
+    }
+
     async fn order_ready_server(
         rx: &mut UnboundedReceiver<ClientPacket>,
         socket: &Addr<Socket<ServerPacket, ClientPacket>>,
         id: u32,
         cost: u32,
         orders: &mut Vec<u32>,
+        requiered_messages: &mut RequieredMessages,
     ) {
         println!("reading");
         match rx.recv().await.unwrap() {
             ClientPacket::PrepareOrder(user_id, amount, tx_id) => {
                 println!("recieved prepare");
-
-                assert_eq!(user_id, id);
-                assert_eq!(amount, cost);
+                if id != 0 {
+                    assert_eq!(user_id, id);
+                    assert_eq!(amount, cost);
+                }
                 let packet = ServerPacket::Ready(tx_id);
                 socket.do_send(SocketSend { data: packet });
                 orders.push(tx_id);
+                requiered_messages.add_prepare();
             }
             ClientPacket::CommitOrder(tx_id) => {
                 let index = orders
@@ -178,8 +221,17 @@ mod test {
                 orders.remove(index);
 
                 println!("recieved commit");
+                requiered_messages.add_commit();
             }
-            _ => panic!("incorrect packet at prepare"),
+            ClientPacket::AddPoints(user_id, amount, tx_id) => {
+                println!("recieved recharge");
+                if id != 0 {
+                    assert_eq!(user_id, id);
+                    assert_eq!(amount, cost);
+                }
+                assert!(!orders.contains(&tx_id));
+                requiered_messages.add_add_points();
+            }
         };
         println!("done")
     }
@@ -222,12 +274,15 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(1, 1, 0);
             for _ in 0..2 {
-                order_ready_server(&mut rx, &socket, 3, 5, &mut orders).await;
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
+                    .await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
             }
+            required_messages.check();
         });
 
         let file = File::open("./src/orders/one_order.csv").await.unwrap();
@@ -262,13 +317,16 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(10, 10, 0);
             for i in 0..20 {
                 println!("iteration: {}", i);
-                order_ready_server(&mut rx, &socket, 3, 5, &mut orders).await;
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
+                    .await;
             }
             if !orders.is_empty() {
                 panic!("a transaction did not commit");
             }
+            required_messages.check();
         });
 
         let file = File::open("./src/orders/repeated_order.csv").await.unwrap();
@@ -287,115 +345,186 @@ mod test {
         join_handle.await.unwrap();
     }
 
-    // #[test]
-    // fn test_one_recharge() {
-    //     let join_handle = thread::spawn(|| {
-    //         let listener = TcpListener::bind("127.0.0.1:34233").unwrap();
-    //         let (mut stream, _) = listener.accept().unwrap();
+    #[actix_rt::test]
+    async fn test_one_recharge() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
 
-    //         let mut buf = [0_u8; 3];
-    //         let _ = stream.read(&mut buf).unwrap();
-    //         assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
 
-    //         let response = [b'o'];
-    //         let _ = stream.write(&response).unwrap();
-    //     });
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
 
-    //     thread::sleep(time::Duration::from_millis(100));
-    //     start_coffee_maker("./src/orders/one_recharge.csv", "127.0.0.1:34233");
+            let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(0, 0, 1);
+            for _ in 0..1 {
+                order_ready_server(
+                    &mut rx,
+                    &socket,
+                    100,
+                    7,
+                    &mut orders,
+                    &mut required_messages,
+                )
+                .await;
+            }
+            if !orders.is_empty() {
+                panic!("a transaction did not commit");
+            }
+            required_messages.check();
+        });
 
-    //     join_handle.join().unwrap();
-    // }
+        let file = File::open("./src/orders/one_recharge.csv").await.unwrap();
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 0);
 
-    // #[test]
-    // fn test_diff_orders() {
-    //     let join_handle = thread::spawn(|| {
-    //         let listener = TcpListener::bind("127.0.0.1:34232").unwrap();
-    //         let (mut stream, _) = listener.accept().unwrap();
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom { reader: file })
+            .await
+            .expect("Failed to send file to CoffeMaker");
 
-    //         assert_order_ready(&mut stream, 3 as u8, 5 as u8);
+        join_handle.await.unwrap();
+    }
 
-    //         let mut buf = [0_u8; 3];
-    //         let _ = stream.read(&mut buf).unwrap();
-    //         assert_eq!(buf, ['m' as u8, 7 as u8, 100 as u8]);
+    #[actix_rt::test]
+    async fn test_diff_orders() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
 
-    //         let response = [b'o'];
-    //         let _ = stream.write(&response).unwrap();
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
 
-    //         assert_order_ready(&mut stream, 100 as u8, 3 as u8);
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
 
-    //         assert_order_ready(&mut stream, 5 as u8, 12 as u8);
+            let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(3, 3, 2);
+            for _ in 0..8 {
+                order_ready_server(&mut rx, &socket, 0, 7, &mut orders, &mut required_messages)
+                    .await;
+            }
+            if !orders.is_empty() {
+                panic!("a transaction did not commit");
+            }
+            required_messages.check();
+        });
 
-    //         let mut buf = [0_u8; 3];
-    //         let _ = stream.read(&mut buf).unwrap();
-    //         assert_eq!(buf, ['m' as u8, 12 as u8, 20 as u8]);
+        let file = File::open("./src/orders/diff_orders.csv").await.unwrap();
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 0);
 
-    //         let response = [b'o'];
-    //         let _ = stream.write(&response).unwrap();
-    //     });
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom { reader: file })
+            .await
+            .expect("Failed to send file to CoffeMaker");
 
-    //     thread::sleep(time::Duration::from_millis(100));
-    //     start_coffee_maker("./src/orders/diff_orders.csv", "127.0.0.1:34232");
+        join_handle.await.unwrap();
+    }
 
-    //     join_handle.join().unwrap();
-    // }
+    #[actix_rt::test]
+    async fn test_one_order_failing() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
 
-    // async fn assert_order_ready_async(stream: &mut TcpStream, id: u8, cost: u8, debug: i32) {
-    //     if debug == 1 {
-    //         tokio::time::sleep(time::Duration::from_millis(100)).await;
-    //     }
-    //     let mut buf = [0_u8; 3];
-    //     let _ = stream.read(&mut buf).unwrap();
-    //     assert_eq!(buf, ['p' as u8, id, cost]);
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
 
-    //     let response = [b'r'];
-    //     let _ = stream.write(&response).unwrap();
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
 
-    //     let mut buf2 = [0_u8; 1];
-    //     let _ = stream.read(&mut buf2).unwrap();
-    //     assert!(buf2 == [b'c'] || buf2 == [b'a']);
-    // }
+            let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(1, 0, 0);
+            for _ in 0..1 {
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
+                    .await;
+            }
+            if orders.len() != 1 {
+                panic!("a transaction committed");
+            }
+            required_messages.check();
+        });
 
-    // #[tokio::main]
-    // async fn split_processing(mut stream: &mut TcpStream, mut stream2: &mut TcpStream) {
-    //     let fut1 = assert_order_ready_async(&mut stream, 3 as u8, 5 as u8, 1);
-    //     let fut2 = assert_order_ready_async(&mut stream2, 3 as u8, 5 as u8, 2);
-    //     tokio::join!(fut1, fut2);
-    // }
+        let file = File::open("./src/orders/one_order.csv").await.unwrap();
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 0);
 
-    // #[test]
-    // fn test_two_coffee_makers() {
-    //     let join_handle = thread::spawn(|| {
-    //         let listener = TcpListener::bind("127.0.0.1:34231").unwrap();
-    //         let (mut stream, _) = listener.accept().unwrap();
-    //         let (mut stream2, _) = listener.accept().unwrap();
-    //         split_processing(&mut stream, &mut stream2);
-    //     });
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom { reader: file })
+            .await
+            .expect("Failed to send file to CoffeMaker");
 
-    //     thread::sleep(time::Duration::from_millis(100));
-    //     let join_handle2 = thread::spawn(|| {
-    //         start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
-    //     });
-    //     start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34231");
+        join_handle.await.unwrap();
+    }
 
-    //     join_handle.join().unwrap();
-    //     join_handle2.join().unwrap();
-    // }
+    #[actix_rt::test]
+    async fn test_repeated_order_failing() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
 
-    // #[test]
-    // fn test_wrong_message() {
-    //     let join_handle = thread::spawn(|| {
-    //         let listener = TcpListener::bind("127.0.0.1:34230").unwrap();
-    //         let (mut stream, _) = listener.accept().unwrap();
+        let (tx, mut rx) = unbounded_channel();
+        let server_mock = ServerMock { sender: tx }.start();
 
-    //         let mut buf = [0_u8; 3];
-    //         let _ = stream.read(&mut buf).unwrap();
-    //         assert_eq!(buf, ['p' as u8, 3 as u8, 5 as u8]);
-    //     });
+        let join_handle = actix_rt::spawn(async move {
+            let socket = Socket::new(
+                server_mock.clone().recipient(),
+                server_mock.recipient(),
+                server_addr,
+                Stream::Existing(listener.accept().await.unwrap().0),
+            )
+            .start();
 
-    //     thread::sleep(time::Duration::from_millis(100));
-    //     start_coffee_maker("./src/orders/one_order.csv", "127.0.0.1:34230");
+            let mut orders: Vec<u32> = Vec::new();
+            let mut required_messages = RequieredMessages::new(10, 0, 0);
+            for i in 0..10 {
+                println!("iteration: {}", i);
+                order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
+                    .await;
+            }
+            if orders.len() != 10 {
+                panic!("a transaction committed");
+            }
+            required_messages.check();
+        });
 
-    //     join_handle.join().unwrap();
-    // }
+        let file = File::open("./src/orders/repeated_order.csv").await.unwrap();
+
+        let order_actor = OrderProcessor::new(server_addr);
+        let maker_actor = CoffeeMaker::new(order_actor, 100);
+
+        println!("sending message");
+        maker_actor
+            .send(ReadOrdersFrom {
+                reader: Box::new(file),
+            })
+            .await
+            .expect("Failed to send file to CoffeMaker");
+
+        join_handle.await.unwrap();
+    }
 }
