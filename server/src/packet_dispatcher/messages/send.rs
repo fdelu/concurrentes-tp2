@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use tracing::error;
 
 use crate::dist_mutex::server_id::ServerId;
 use crate::network::SendPacket;
@@ -30,7 +31,7 @@ impl Handler<SendMessage> for PacketDispatcher {
             {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    println!("Error sending packet to {}: {}", msg.to, e);
+                    error!("Error sending packet to {}: {}", msg.to, e);
                     Err(e)
                 }
             }

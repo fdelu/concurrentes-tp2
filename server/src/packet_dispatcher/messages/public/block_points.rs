@@ -4,6 +4,7 @@ use crate::two_phase_commit::packets::Transaction;
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
 use crate::{AcquireMessage, PacketDispatcher};
 use actix::prelude::*;
+use tracing::{debug, error, info};
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
@@ -28,11 +29,11 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
 
         async move {
             if mutex_c.send(AcquireMessage {}).await.is_err() {
-                println!("Error from mutex");
+                error!("Error from mutex");
                 return Err(PacketDispatcherError::Timeout);
             };
 
-            println!("Acquired mutex for client {}", msg.client_id);
+            info!("Acquired mutex for client {}", msg.client_id);
             let mut res = Ok(());
             match tp_commit_addr
                 .send(CommitRequestMessage {
@@ -43,19 +44,19 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
                 .unwrap()
             {
                 Ok(true) => {
-                    println!("Transaction (Block) successful");
+                    debug!("Transaction (Block) successful");
                 }
                 Ok(false) => {
                     res = Err(PacketDispatcherError::InsufficientPoints);
                 }
                 Err(e) => {
-                    println!("Transaction failed: {:?}", e);
+                    error!("Transaction failed: {:?}", e);
                 }
             }
             if mutex_c.send(crate::ReleaseMessage {}).await.is_err() {
                 return Err(PacketDispatcherError::Timeout);
             };
-            println!("Released mutex for client {}", msg.client_id);
+            info!("Released mutex for client {}", msg.client_id);
             res
         }
         .into_actor(self)

@@ -1,5 +1,9 @@
 {
-    "order_from": "./orders/one_order.csv",
+    "order_from": "stdin",
     "server_ip": "127.0.0.1:34255",
-    "logs_folder": "./logs"
+    "logs": {
+        "files_directory": "logs",
+        "file_log_level": "info",
+        "stdout_log_level": "trace"
+    }
 }

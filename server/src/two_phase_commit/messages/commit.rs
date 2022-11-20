@@ -4,6 +4,7 @@ use crate::ServerId;
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::debug;
 
 #[derive(Message)]
 #[rtype(result = "CommitResult<()>")]
@@ -16,7 +17,7 @@ impl<P: AHandler<SendMessage>> Handler<CommitMessage> for TwoPhaseCommit<P> {
     type Result = ResponseActFuture<Self, CommitResult<()>>;
 
     fn handle(&mut self, msg: CommitMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!("{} Received commit from {} for {}", self, msg.from, msg.id);
+        debug!("{} Received commit from {} for {}", self, msg.from, msg.id);
 
         if let Some((state, _)) = self.logs.get_mut(&msg.id) {
             if *state == TransactionState::Prepared {

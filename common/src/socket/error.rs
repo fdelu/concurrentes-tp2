@@ -38,3 +38,17 @@ impl From<SocketError> for io::Error {
         Self::new(io::ErrorKind::Other, e.to_string())
     }
 }
+
+pub trait FlattenResult<T> {
+    fn flatten(self) -> Result<T, SocketError>;
+}
+
+impl<A, B, T> FlattenResult<T> for Result<Result<T, A>, B>
+where
+    SocketError: From<A> + From<B>,
+{
+    fn flatten(self) -> Result<T, SocketError> {
+        self.map_err(SocketError::from)
+            .and_then(|r| r.map_err(SocketError::from))
+    }
+}

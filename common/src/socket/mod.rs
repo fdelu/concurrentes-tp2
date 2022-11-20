@@ -19,6 +19,7 @@ use tokio::sync::{
     oneshot,
 };
 use tokio::{select, spawn};
+use tracing::{trace, warn};
 
 mod error;
 mod messages;
@@ -27,7 +28,7 @@ mod write;
 
 use self::read::ReaderLoop;
 use self::write::WriterLoop;
-pub use error::SocketError;
+pub use error::{FlattenResult, SocketError};
 pub use messages::*;
 
 pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
@@ -57,7 +58,6 @@ where
     S: PacketSend,
 {
     received_handler: Recipient<ReceivedPacket<R>>,
-    end_handler: Recipient<SocketEnd>,
     stop_rx: oneshot::Receiver<()>,
     stream: Stream,
     socket_addr: SocketAddr,
@@ -74,8 +74,8 @@ where
         let on_read = self.on_read();
         let stream = match self.stream {
             Stream::Existing(stream) => stream,
-            Stream::NewBindedTo(bind_to) => Self::new_tcp_stream(bind_to, self.socket_addr).await?,
-            Stream::New => TcpStream::connect(self.socket_addr).await?,
+            Stream::NewBindedTo(bind_to) => Self::connect(Some(bind_to), self.socket_addr).await?,
+            Stream::New => Self::connect(None, self.socket_addr).await?,
         };
         let (reader, writer) = stream.into_split();
 
@@ -88,9 +88,6 @@ where
             _ = receiver => (),
             _ = self.stop_rx => ()
         }
-        self.end_handler.do_send(SocketEnd {
-            addr: self.socket_addr,
-        });
 
         Ok(())
     }
@@ -103,13 +100,21 @@ where
         })
     }
 
-    async fn new_tcp_stream(bind_to: IpAddr, addr: SocketAddr) -> io::Result<TcpStream> {
-        let socket = match bind_to {
-            IpAddr::V4(_) => TcpSocket::new_v4(),
-            IpAddr::V6(_) => TcpSocket::new_v6(),
-        }?;
-        socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
-        socket.connect(addr).await
+    async fn connect(bind_to: Option<IpAddr>, addr: SocketAddr) -> io::Result<TcpStream> {
+        trace!("Socket connecting to {}...", addr);
+        let stream = if let Some(bind_to) = bind_to {
+            let socket = match bind_to {
+                IpAddr::V4(_) => TcpSocket::new_v4(),
+                IpAddr::V6(_) => TcpSocket::new_v6(),
+            }?;
+            socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
+            trace!("Port used: {:?}", socket.local_addr().map(|a| a.port()));
+            socket.connect(addr).await
+        } else {
+            TcpStream::connect(addr).await
+        };
+        trace!("Socket connected to {}", addr);
+        stream
     }
 }
 
@@ -121,13 +126,11 @@ impl<S: PacketSend, R: PacketRecv> Socket<S, R> {
         stream: Stream,
     ) -> Socket<S, R> {
         let (write_tx, write_rx) = unbounded_channel();
-        let end_h = end_handler.clone();
 
         let (stop_tx, stop_rx) = oneshot::channel();
         spawn(async move {
-            if (SocketRunner {
+            if let Err(err) = (SocketRunner {
                 received_handler,
-                end_handler,
                 stop_rx,
                 stream,
                 socket_addr,
@@ -136,10 +139,10 @@ impl<S: PacketSend, R: PacketRecv> Socket<S, R> {
             }
             .run())
             .await
-            .is_err()
             {
-                end_h.do_send(SocketEnd { addr: socket_addr });
+                warn!("Internal socket error: {}", err);
             }
+            end_handler.do_send(SocketEnd { addr: socket_addr });
         });
 
         Socket {
@@ -197,6 +200,7 @@ pub mod test_util {
             pub fn new_v6() -> io::Result<Self>;
             pub fn bind(&self, addr: SocketAddr) -> io::Result<()>;
             pub async fn connect(self, addr: SocketAddr) -> io::Result<MockTcpStream>;
+            pub fn local_addr(&self) -> io::Result<SocketAddr>;
         }
     }
     mock! {

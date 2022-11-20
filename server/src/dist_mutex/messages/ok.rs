@@ -2,6 +2,7 @@ use crate::dist_mutex::packets::OkPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
 use actix::prelude::*;
 use std::collections::HashSet;
+use tracing::{debug, info};
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -23,13 +24,13 @@ impl<P: Actor> Handler<OkMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
-        println!("{} Received ok from {}", self, msg.from);
-        println!("Connected servers: {:?}", msg.connected_servers);
+        debug!("{} Received ok from {}", self, msg.from);
+        info!("Connected servers: {:?}", msg.connected_servers);
 
         self.ok_received.insert(msg.from);
 
         if self.ok_received.is_superset(&msg.connected_servers) {
-            println!("{} All ok received", self);
+            debug!("{} All ok received", self);
             if let Some(ch) = self.all_oks_received_channel.take() {
                 ch.send(()).unwrap();
             }

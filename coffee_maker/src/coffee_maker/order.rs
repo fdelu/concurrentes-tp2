@@ -24,7 +24,7 @@ impl FromStr for Order {
     type Err = SocketError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let splitted: Vec<&str> = s.split(',').collect();
+        let splitted: Vec<&str> = s.split(',').map(str::trim).collect();
 
         match splitted[0] {
             "sale" => {

@@ -8,6 +8,7 @@ use actix::{
 use actix_rt::task::JoinHandle;
 
 use mockall_double::double;
+use tracing::{debug, info};
 
 mod connection;
 mod listener;
@@ -82,6 +83,7 @@ impl<S: PacketSend, R: PacketRecv> Actor for ConnectionHandler<S, R> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        info!("ConnectionHandler stopped");
         if let Some(join) = self.join_listener.take() {
             join.abort();
         }
@@ -144,6 +146,7 @@ impl<S: PacketSend, R: PacketRecv> Handler<AddStream> for ConnectionHandler<S, R
     type Result = ();
 
     fn handle(&mut self, msg: AddStream, ctx: &mut Self::Context) -> Self::Result {
+        debug!("Creating connection from stream");
         let connection = Connection::new(
             ctx.address().recipient(),
             ctx.address().recipient(),

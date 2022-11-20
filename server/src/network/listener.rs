@@ -1,14 +1,15 @@
 use std::io;
 
 use actix::Recipient;
-#[cfg(not(test))]
-use actix_rt::net::TcpListener;
 #[cfg(test)]
 use common::socket::test_util::MockTcpListener as TcpListener;
+#[cfg(not(test))]
+use tokio::net::TcpListener;
 use tokio::{
     net::ToSocketAddrs,
     task::{spawn, JoinHandle},
 };
+use tracing::{debug, error, trace};
 
 use super::AddStream;
 use common::socket::SocketError;
@@ -22,7 +23,9 @@ pub struct Listener {
 #[cfg_attr(test, automock)]
 impl Listener {
     pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
+        trace!("Binding listener...");
         let listener = TcpListener::bind(addr).await?;
+        trace!("Bound to {:?}", listener.local_addr());
         Ok(Self { listener })
     }
 
@@ -30,19 +33,31 @@ impl Listener {
         listener: &mut TcpListener,
         handler: &Recipient<AddStream>,
     ) -> Result<(), SocketError> {
+        trace!("Accepting connection...");
         let (stream, addr) = listener.accept().await?;
+        trace!("Accepted connection from {}", addr);
         handler.send(AddStream { stream, addr }).await?;
         Ok(())
     }
 
     pub fn run(mut self, add_handler: Recipient<AddStream>) -> JoinHandle<()> {
         spawn(async move {
+            debug!(
+                "Listening for connections ({:?})",
+                self.listener.local_addr()
+            );
             loop {
                 if let Err(e) = Self::add_connection(&mut self.listener, &add_handler).await {
-                    eprintln!("Error accepting connection: {e}");
+                    error!("Error accepting connection: {e}");
                 }
             }
         })
+    }
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        debug!("Dropping listener");
     }
 }
 

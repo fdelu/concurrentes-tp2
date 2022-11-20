@@ -4,6 +4,7 @@ use tokio::sync::oneshot;
 use tokio::time;
 
 use common::AHandler;
+use tracing::debug;
 
 use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
 use crate::dist_mutex::MutexError::Mailbox;
@@ -56,18 +57,18 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
         let id = self.id;
 
         let future = async move {
-            println!("[Mutex {}] Waiting for all oks", id);
+            debug!("[Mutex {}] Waiting for all oks", id);
             if time::timeout(TIME_UNTIL_DISCONNECT_POLITIC, rx)
                 .await
                 .is_err()
             {
-                println!(
+                debug!(
                     "[Mutex {}] Timeout while waiting for oks, maybe some server is down",
                     id
                 );
                 Err(MutexError::Timeout)
             } else {
-                println!("[Mutex {}] All oks received", id);
+                debug!("[Mutex {}] All oks received", id);
                 Ok(())
             }
         }
@@ -78,24 +79,24 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
                 match r {
                     Ok(()) => {
                         // Lock acquired
-                        println!("[Mutex {}] I have the lock", me.id);
+                        debug!("[Mutex {}] I have the lock", me.id);
                         me.ok_future()
                     }
                     Err(MutexError::Timeout | MutexError::Disconnected) => {
                         if me.ack_received.is_empty() {
                             // We are disconnected
                             // TODO: Handle this
-                            println!("[Mutex {}] We are disconnected", me.id);
+                            debug!("[Mutex {}] We are disconnected", me.id);
                             me.err_disconnected_future()
                         } else if me.ok_received == me.ack_received {
                             // There are servers that are disconnected
                             // but we have the lock
-                            println!("[Mutex {}] I have the lock", me.id);
+                            debug!("[Mutex {}] I have the lock", me.id);
                             me.send_prune();
                             me.ok_future()
                         } else {
                             // There is a server that has the lock
-                            println!("[Mutex {}] There is a server that has the lock", me.id);
+                            debug!("[Mutex {}] There is a server that has the lock", me.id);
                             me.wait_lock()
                         }
                     }
@@ -122,7 +123,7 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
     }
 
     fn wait_lock(&mut self) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
-        println!(
+        debug!(
             "{} Waiting {} ms for lock",
             self,
             TIME_UNTIL_ERROR.as_millis()
@@ -131,7 +132,7 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
         self.all_oks_received_channel = Some(tx);
         async move {
             if time::timeout(TIME_UNTIL_ERROR, rx).await.is_err() {
-                println!("Timeout while waiting for oks, but seems that some server has the lock");
+                debug!("Timeout while waiting for oks, but seems that some server has the lock");
                 Err(MutexError::Timeout)
             } else {
                 Ok(())

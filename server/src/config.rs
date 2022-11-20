@@ -1,5 +1,6 @@
 use std::{fs::File, io::Read, net::IpAddr};
 
+use common::log::LogConfig;
 use serde::Deserialize;
 
 use crate::dist_mutex::server_id::ServerId;
@@ -10,6 +11,7 @@ pub struct Config {
     pub servers: Vec<ServerId>,
     pub server_port: u16,
     pub client_port: u16,
+    pub logs: LogConfig,
 }
 
 impl Config {

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use common::AHandler;
+use tracing::{debug, info, trace, warn};
 
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
@@ -84,7 +85,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
         let logs = HashMap::new();
         Self::create(|ctx| {
             ctx.run_interval(Duration::from_secs(10), |me, _| {
-                println!("Database: {:#?}", me.database);
+                trace!("Database: {:#?}", me.database);
             });
             Self {
                 logs,
@@ -113,7 +114,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
             } => {
                 let client_data = self.database.get_mut(&client_id).unwrap();
                 if client_data.points >= amount {
-                    println!(
+                    debug!(
                         "Client {} has enough points to block (needed: {}, actual: {})",
                         client_id, amount, client_data.points
                     );
@@ -121,8 +122,8 @@ impl<P: Actor> TwoPhaseCommit<P> {
                     self.set_timeout_for_transaction(transaction_id, ctx);
                     true
                 } else {
-                    println!(
-                        "Client {} has not enough points (needed: {}, actual: {})",
+                    warn!(
+                        "Client {} does not have enough points (needed: {}, actual: {})",
                         client_id, amount, client_data.points
                     );
                     self.logs
@@ -153,7 +154,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
     }
 
     fn commit_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
-        println!("Committing transaction {}", id);
+        info!("Committing transaction {}", id);
         if let Some(h) = self.transactions_timeouts.remove(&id) {
             ctx.cancel_future(h);
         };

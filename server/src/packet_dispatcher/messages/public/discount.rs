@@ -3,6 +3,7 @@ use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMe
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
 use crate::PacketDispatcher;
 use actix::prelude::*;
+use tracing::{debug, error};
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
@@ -22,10 +23,10 @@ impl Handler<DiscountMessage> for PacketDispatcher {
 
         async move {
             if mutex_c_1.send(crate::AcquireMessage {}).await.is_err() {
-                println!("Error from mutex");
+                error!("Error from mutex");
                 Err(PacketDispatcherError::Timeout)
             } else {
-                println!("Acquired mutex for client {}", msg.client_id);
+                debug!("Acquired mutex for client {}", msg.client_id);
                 Ok(())
             }
         }
@@ -50,7 +51,7 @@ impl Handler<DiscountMessage> for PacketDispatcher {
                 if mutex_c_2.send(crate::ReleaseMessage {}).await.is_err() {
                     return Err(PacketDispatcherError::Timeout);
                 };
-                println!("Released mutex for client {}", msg.client_id);
+                debug!("Released mutex for client {}", msg.client_id);
                 Ok(())
             }
             .into_actor(me)

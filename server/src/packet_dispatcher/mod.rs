@@ -5,6 +5,7 @@ use std::time::Duration;
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::{debug, info};
 
 use crate::config::Config;
 use crate::dist_mutex::messages::ack::AckMessage;
@@ -115,7 +116,7 @@ impl PacketDispatcher {
     fn handle_mutex(&mut self, from: ServerId, packet: MutexPacket, ctx: &mut Context<Self>) {
         match packet {
             MutexPacket::Request(request) => {
-                println!("Received request from {}", from);
+                debug!("Received request from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, request.id);
                 let message = RequestMessage::new(from, request);
 
@@ -212,7 +213,7 @@ impl PacketDispatcher {
         id: ResourceId,
     ) -> &mut Addr<DistMutex<PacketDispatcher>> {
         let mutex = self.mutexes.entry(id).or_insert_with(|| {
-            println!("Creating mutex for {}", id);
+            info!("Creating mutex for {}", id);
             DistMutex::new(self.server_id, id, ctx.address()).start()
         });
         mutex

@@ -1,5 +1,6 @@
 use crate::two_phase_commit::{TransactionId, TwoPhaseCommit};
 use actix::prelude::*;
+use tracing::error;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -11,7 +12,7 @@ impl<P: Actor> Handler<RemoveTransactionMessage> for TwoPhaseCommit<P> {
     type Result = ();
 
     fn handle(&mut self, msg: RemoveTransactionMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!(
+        error!(
             "{} Timeout while waiting for transaction {}, aborting it",
             self, msg.transaction_id
         );

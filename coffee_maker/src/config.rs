@@ -1,12 +1,13 @@
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, net::SocketAddr};
 
+use common::log::LogConfig;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Config {
     pub order_from: String,
-    pub server_ip: String,
-    pub logs_folder: String,
+    pub server_ip: SocketAddr,
+    pub logs: LogConfig,
 }
 
 impl Config {

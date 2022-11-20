@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use tracing::warn;
 
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::two_phase_commit::{CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
@@ -16,7 +17,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<VoteNoMessage> for TwoPhaseCommit<P>
     type Result = CommitResult<()>;
 
     fn handle(&mut self, msg: VoteNoMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!("{} Received vote no from {} for {}", self, msg.from, msg.id);
+        warn!("{} Received vote no from {} for {}", self, msg.from, msg.id);
         self.coordinator_timeouts
             .remove(&msg.id)
             .map(|tx| tx.send(false));

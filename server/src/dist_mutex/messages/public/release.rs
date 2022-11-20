@@ -1,6 +1,7 @@
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::error;
 
 use crate::dist_mutex::packets::{MutexPacket, OkPacket};
 use crate::dist_mutex::{DistMutex, MutexResult};
@@ -37,7 +38,7 @@ impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
         async move {
             for future in futures {
                 if future.await.is_err() {
-                    println!("[Mutex {}] Error while sending ok to server", id);
+                    error!("[Mutex {}] Error while sending ok to server", id);
                 }
             }
             Ok(())

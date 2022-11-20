@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::debug;
 
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::two_phase_commit::{CommitResult, TransactionId, TwoPhaseCommit};
@@ -20,7 +21,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<VoteYesMessage> for TwoPhaseCommit<P
     type Result = CommitResult<()>;
 
     fn handle(&mut self, msg: VoteYesMessage, _ctx: &mut Self::Context) -> Self::Result {
-        println!(
+        debug!(
             "{} Received vote yes from {} for {}",
             self, msg.from, msg.id
         );

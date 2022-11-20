@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use tracing::info;
 
 use crate::dist_mutex::packets::get_timestamp;
 use crate::dist_mutex::server_id::ServerId;
@@ -25,11 +26,11 @@ impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
                 self.handle_commit(origin_addr.into(), packet, ctx);
             }
             Packet::SyncRequest(packet) => {
-                println!("Received sync request from {}", ServerId::from(msg.addr));
+                info!("Received sync request from {}", ServerId::from(msg.addr));
                 self.handle_sync_request(msg.addr.into(), packet, ctx);
             }
             Packet::SyncResponse(packet) => {
-                println!("Received sync response from {}", ServerId::from(msg.addr));
+                info!("Received sync response from {}", ServerId::from(msg.addr));
                 self.handle_sync_response(msg.addr.into(), packet, ctx);
             }
         }

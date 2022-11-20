@@ -1,3 +1,10 @@
+use std::{collections::HashMap, net::SocketAddr};
+
+use actix::{
+    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
+};
+use tracing::info;
+
 use crate::{
     config::Config,
     network::{ConnectionHandler, Listen, SendPacket},
@@ -7,14 +14,10 @@ use crate::{
     },
     two_phase_commit::PacketDispatcherError,
 };
-use actix::{
-    Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
-};
 use common::{
     packet::{Amount, ClientPacket, ServerPacket, TxId, UserId},
-    socket::{ReceivedPacket, SocketError},
+    socket::{FlattenResult, ReceivedPacket, SocketError},
 };
-use std::{collections::HashMap, net::SocketAddr};
 
 pub struct ClientConnections {
     socket: Addr<ConnectionHandler<ServerPacket, ClientPacket>>,
@@ -24,6 +27,10 @@ pub struct ClientConnections {
 
 impl Actor for ClientConnections {
     type Context = Context<Self>;
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        info!("ClientConnections stopped");
+    }
 }
 
 impl ClientConnections {
@@ -146,12 +153,12 @@ impl Handler<Listen> for ClientConnections {
         let socket_actor_addr = self.socket.clone();
         let dispatcher_addr = self.dispatcher_addr.clone();
         async move {
-            match socket_actor_addr.send(msg).await {
+            match socket_actor_addr.send(msg).await.flatten() {
                 Ok(_) => (),
                 Err(e) => return Err(SocketError::from(e)),
             };
 
-            match dispatcher_addr.send(Listen {}).await {
+            match dispatcher_addr.send(Listen {}).await.flatten() {
                 Ok(_) => Ok(()),
                 Err(e) => Err(SocketError::from(e)),
             }

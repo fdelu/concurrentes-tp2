@@ -2,6 +2,7 @@ use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::two_phase_commit::{TransactionId, TransactionState, TwoPhaseCommit};
 use actix::prelude::*;
 use std::collections::HashSet;
+use tracing::debug;
 
 use crate::ServerId;
 use common::AHandler;
@@ -17,7 +18,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseC
     type Result = ();
 
     fn handle(&mut self, msg: CommitCompleteMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!("{} Trying to commit {}", self, msg.id);
+        debug!("{} Trying to commit {}", self, msg.id);
         let confirmed_servers = self
             .confirmations
             .entry(msg.id)
@@ -26,7 +27,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseC
         if confirmed_servers.is_superset(&msg.connected_servers) {
             if let Some((state, _)) = self.logs.get_mut(&msg.id) {
                 if *state == TransactionState::Abort {
-                    // println!("{} Not committing {} because it was aborted", self, msg.id);
+                    // debug!("{} Not committing {} because it was aborted", self, msg.id);
                     return;
                 }
                 *state = TransactionState::Commit;
@@ -34,7 +35,7 @@ impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseC
                 self.broadcast_commit(msg.id);
             }
         } else {
-            println!(
+            debug!(
                 "{} Not committing {} because not all servers have confirmed",
                 self, msg.id
             );

@@ -1,5 +1,6 @@
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tracing::error;
 
 use super::{OnRead, SocketError, PACKET_SEP};
 
@@ -34,7 +35,7 @@ impl<T: AsyncReadExt + Unpin, P: DeserializeOwned> ReaderLoop<T, P> {
             match self.process_message(&mut buffer).await {
                 Ok(0) => return Ok(()),
                 Err(e) => {
-                    eprintln!("Error in ReaderLoop: {}", e);
+                    error!("Error in ReaderLoop: {}", e);
                     return Err(e);
                 }
                 _ => continue,

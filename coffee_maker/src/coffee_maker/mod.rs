@@ -1,10 +1,10 @@
-use std::io::{BufRead, BufReader};
 use std::time;
 
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, ResponseActFuture, WrapFuture,
 };
 use rand::Rng;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
@@ -39,19 +39,16 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     }
 
     ///checks the type of order
-    fn process_order(&self, order: String, ctx: &Context<Self>) {
-        match order.parse::<Order>() {
-            Ok(Order::Sale(coffee)) => {
+    fn process_order(&self, order: Order, ctx: &Context<Self>) {
+        match order {
+            Order::Sale(coffee) => {
                 self.order_processor.do_send(PrepareOrder {
                     coffee,
                     maker: ctx.address().recipient(),
                 });
             }
-            Ok(Order::Recharge(amount, user_id)) => {
+            Order::Recharge(amount, user_id) => {
                 self.order_processor.do_send(AddMoney { amount, user_id });
-            }
-            Err(e) => {
-                error!("Error parsing order: {}", e);
             }
         }
     }
@@ -78,18 +75,42 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     }
 }
 
-impl<O: OrderProcessorTrait> Handler<ReadOrdersFrom> for CoffeeMaker<O> {
+impl<O: OrderProcessorTrait> Handler<AddOrder> for CoffeeMaker<O> {
     type Result = ();
 
-    fn handle(&mut self, msg: ReadOrdersFrom, ctx: &mut Context<Self>) -> Self::Result {
-        let reader = BufReader::new(msg.reader);
+    fn handle(&mut self, msg: AddOrder, ctx: &mut Self::Context) -> Self::Result {
+        self.process_order(msg.order, ctx);
+    }
+}
 
-        for line_res in reader.lines() {
-            match line_res {
-                Ok(line) => self.process_order(line, ctx),
-                Err(e) => error!("I/O error: {}", e),
+impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrdersFrom<R>>
+    for CoffeeMaker<O>
+{
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(&mut self, msg: ReadOrdersFrom<R>, ctx: &mut Context<Self>) -> Self::Result {
+        let reader = BufReader::new(msg.reader);
+        let mut lines = reader.lines();
+        let this = ctx.address();
+        async move {
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => match line.parse::<Order>() {
+                        Ok(order) => this.do_send(AddOrder { order }),
+                        Err(e) => error!("Failed to parse order: {}", e),
+                    },
+                    Ok(None) => {
+                        break;
+                    }
+                    Err(e) => {
+                        error!("I/O error: {}", e);
+                        break;
+                    }
+                }
             }
         }
+        .into_actor(self)
+        .boxed_local()
     }
 }
 
@@ -121,8 +142,8 @@ mod test {
     use common::socket::SocketEnd;
     use common::socket::SocketSend;
     use common::socket::Stream;
-    use std::fs::File;
     use std::net::SocketAddr;
+    use tokio::fs::File;
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::mpsc::UnboundedSender;
@@ -205,15 +226,13 @@ mod test {
             }
         });
 
-        let file = File::open("./src/orders/one_order.csv").unwrap();
+        let file = File::open("./src/orders/one_order.csv").await.unwrap();
         let order_actor = OrderProcessor::new(server_addr);
         let maker_actor = CoffeeMaker::new(order_actor, 0);
 
         println!("sending message");
         maker_actor
-            .send(ReadOrdersFrom {
-                reader: Box::new(file),
-            })
+            .send(ReadOrdersFrom { reader: file })
             .await
             .expect("Failed to send file to CoffeMaker");
 
@@ -248,7 +267,7 @@ mod test {
             }
         });
 
-        let file = File::open("./src/orders/repeated_order.csv").unwrap();
+        let file = File::open("./src/orders/repeated_order.csv").await.unwrap();
 
         let order_actor = OrderProcessor::new(server_addr);
         let maker_actor = CoffeeMaker::new(order_actor, 0);

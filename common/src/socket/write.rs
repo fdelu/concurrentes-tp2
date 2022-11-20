@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tokio::{io::AsyncWriteExt, sync::mpsc::UnboundedReceiver};
+use tracing::error;
 
 use super::SocketError;
 
@@ -40,7 +41,7 @@ impl<T: AsyncWriteExt + Unpin, P: Serialize> WriterLoop<T, P> {
     pub async fn run(mut self) {
         loop {
             match self.process_message().await {
-                Err(e) => eprintln!("Error in WriterLoop from stream: {}", e),
+                Err(e) => error!("Error in WriterLoop from stream: {}", e),
                 Ok(false) => break,
                 _ => (),
             }

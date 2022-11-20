@@ -1,6 +1,7 @@
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::debug;
 
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::two_phase_commit::packets::Transaction;
@@ -19,7 +20,7 @@ impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
     type Result = ResponseActFuture<Self, CommitResult<()>>;
 
     fn handle(&mut self, msg: PrepareMessage, ctx: &mut Self::Context) -> Self::Result {
-        println!("{} Received prepare from {}", self, msg.from);
+        debug!("{} Received prepare from {}", self, msg.from);
 
         match self.logs.get(&msg.id) {
             Some((TransactionState::Prepared | TransactionState::Commit, _)) => {
@@ -29,7 +30,7 @@ impl<P: AHandler<SendMessage>> Handler<PrepareMessage> for TwoPhaseCommit<P> {
                 self.send_vote_no(msg.from, msg.id);
             }
             None => {
-                println!("{} Doing transaction", self);
+                debug!("{} Doing transaction", self);
                 if self.prepare_transaction(msg.id, msg.transaction, ctx) {
                     self.send_vote_yes(msg.from, msg.id);
                 } else {

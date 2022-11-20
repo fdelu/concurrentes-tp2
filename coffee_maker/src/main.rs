@@ -1,43 +1,47 @@
 mod coffee_maker;
 mod config;
-mod log;
 mod order_processor;
-use std::{fs::File, io::Read};
 
+use tokio::{
+    fs::File,
+    io::{stdin, AsyncReadExt},
+};
 use tracing::info;
 
 use crate::{
     coffee_maker::{CoffeeMaker, ReadOrdersFrom},
     config::Config,
-    log::init,
     order_processor::OrderProcessor,
 };
+use common::log::init_logger;
 
 pub async fn start_coffee_maker(cfg: &Config) {
-    let file = File::open(&cfg.order_from).unwrap();
-    // let _guard = init();
-    info!("started coffee making");
-    let server_addr = cfg.server_ip.parse().expect("Invalid server ip");
-    let order_actor = OrderProcessor::new(server_addr);
+    info!("Initializing...");
+    let order_actor = OrderProcessor::new(cfg.server_ip);
     let maker_actor = CoffeeMaker::new(order_actor, 15);
 
-    maker_actor
-        .send(ReadOrdersFrom {
-            reader: Box::new(file),
-        })
-        .await
-        .expect("Failed to send file to CoffeMaker");
+    info!("Reading orders from {}", cfg.order_from);
+
+    if cfg.order_from == "stdin" {
+        maker_actor.send(ReadOrdersFrom { reader: stdin() }).await
+    } else {
+        let file = File::open(cfg.order_from.clone())
+            .await
+            .expect("Failed to open orders file");
+        maker_actor.send(ReadOrdersFrom { reader: file }).await
+    }
+    .expect("Failed to send file to CoffeMaker");
 }
 
 #[actix_rt::main]
 async fn main() {
     let config_path = std::env::args().nth(1).expect("No config file provided");
     let cfg = Config::from_file(&config_path);
-    let _log_guard = init(&cfg);
+    let _guard = init_logger(&cfg.logs);
 
     start_coffee_maker(&cfg).await;
 
-    info!("Presione [ENTER] para detener la ejecución");
+    info!("Finished adding orders. Press [ENTER] to stop execution");
     let mut buf = [0u8; 1];
-    std::io::stdin().read_exact(&mut buf).unwrap_or(());
+    stdin().read_exact(&mut buf).await.ok();
 }

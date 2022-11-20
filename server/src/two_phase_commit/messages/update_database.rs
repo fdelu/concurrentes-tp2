@@ -4,6 +4,7 @@ use crate::two_phase_commit::packets::Transaction;
 use crate::two_phase_commit::{ClientData, TransactionId, TransactionState, TwoPhaseCommit};
 use actix::prelude::*;
 use std::collections::HashMap;
+use tracing::debug;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -18,7 +19,7 @@ impl<P: Actor> Handler<UpdateDatabaseMessage> for TwoPhaseCommit<P> {
 
     fn handle(&mut self, msg: UpdateDatabaseMessage, ctx: &mut Self::Context) -> Self::Result {
         if msg.snapshot_from > self.database_last_update {
-            println!(
+            debug!(
                 "Updating database from {} to {}",
                 self.database_last_update, msg.snapshot_from
             );
@@ -31,7 +32,7 @@ impl<P: Actor> Handler<UpdateDatabaseMessage> for TwoPhaseCommit<P> {
             self.logs = msg.logs;
             self.database_last_update = msg.snapshot_from;
         } else {
-            println!(
+            debug!(
                 "Ignoring database update ({} >= {})",
                 self.database_last_update, msg.snapshot_from
             );

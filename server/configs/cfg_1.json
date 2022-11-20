@@ -11,17 +11,11 @@
         },
         {
             "ip": "127.0.0.3"
-        },
-        {
-            "ip": "127.0.0.4"
-        },
-        {
-            "ip": "127.0.0.5"
         }
     ],
     "logs": {
-        "files_directory": "logs",
+        "files_directory": "logs/1",
         "file_log_level": "info",
-        "stdout_log_level": "sdfds"
+        "stdout_log_level": "trace"
     }
 }

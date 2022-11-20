@@ -1,6 +1,7 @@
 use actix::prelude::*;
 
 use common::AHandler;
+use tracing::debug;
 
 use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket, Timestamp};
 use crate::dist_mutex::{DistMutex, ResourceId, ServerId};
@@ -59,10 +60,10 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
 
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
-                println!("{} {:?} has priority over me, sending ok", self, msg.from);
+                debug!("{} {:?} has priority over me, sending ok", self, msg.from);
                 send_ok(&self.dispatcher, msg.from, self.id);
             } else {
-                println!(
+                debug!(
                     "{} I have priority over {} (my timestamp {} - other timestamp: {})",
                     self, msg.from, my_timestamp, msg.timestamp
                 );
@@ -70,7 +71,7 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
                 self.queue.sort_by_key(|(timestamp, _)| *timestamp);
             }
         } else {
-            println!(
+            debug!(
                 "{} I am not waiting for lock, sending ok to {}",
                 self, msg.from
             );
