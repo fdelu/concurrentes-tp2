@@ -6,6 +6,10 @@ use super::SocketError;
 
 use super::{WriterSend, PACKET_SEP};
 
+/// Loop que se encarga de escribir en el socket. Recibe todos
+/// los paquetes a través de un [UnboundedReceiver] y los escribe
+/// serializados con [serde_json] en el socket, separándolos con
+/// [PACKET_SEP].
 pub struct WriterLoop<T: AsyncWriteExt + Unpin, P: Serialize> {
     writer: T,
     rx: UnboundedReceiver<WriterSend<P>>,

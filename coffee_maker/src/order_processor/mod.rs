@@ -8,8 +8,9 @@ use tracing::{error, info, warn};
 
 use crate::coffee_maker::{Coffee, MakeCoffee};
 use common::{
+    error::{CoffeeError, FlattenResult},
     packet::{ClientPacket, ServerPacket, TxId},
-    socket::{ReceivedPacket, Socket, SocketEnd, SocketError, SocketSend, Stream},
+    socket::{ReceivedPacket, Socket, SocketEnd, SocketSend, Stream},
 };
 
 mod messages;
@@ -80,7 +81,7 @@ impl OrderProcessor {
         }
     }
 
-    fn handle_server_error(&mut self, tx_id: TxId, error: SocketError) {
+    fn handle_server_error(&mut self, tx_id: TxId, error: CoffeeError) {
         if let Some((coffee, _)) = self.remove_tx_id(tx_id) {
             error!(
                 "Couldn't make coffee {}: Server error ({})\nTransaction ID: {}",
@@ -107,7 +108,7 @@ impl Handler<PrepareOrder> for OrderProcessor {
                     data: ClientPacket::PrepareOrder(coffee.user_id, coffee.cost, transaction_id),
                 })
                 .await;
-            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
                 error!("Error sending PrepareOrder: {}", e);
             } else {
                 info!("Sent PrepareOrder with transaction id {}", transaction_id);
@@ -131,7 +132,7 @@ impl Handler<CommitOrder> for OrderProcessor {
                 })
                 .await;
 
-            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
                 error!("Error sending CommitOrder: {}", e);
             } else {
                 info!(
@@ -167,7 +168,7 @@ impl Handler<AddMoney> for OrderProcessor {
                 })
                 .await;
 
-            if let Err(e) = res.map_err(SocketError::from).and_then(|x| x) {
+            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
                 error!("Error sending AddMoney: {}", e);
             } else {
                 info!("Sent AddMoney with transaction id {}", transaction_id)

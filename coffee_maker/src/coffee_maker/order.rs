@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use common::{
+    error::CoffeeError::{self, InvalidOrder},
     packet::{Amount, UserId},
-    socket::SocketError,
 };
 
 #[derive(Clone)]
@@ -21,7 +21,7 @@ const ERR_UNKNOWN_TYPE: &str = "Unknown order type";
 const ERR_MISSING_FIELDS: &str = "Invalid amount of fields for this order type";
 
 impl FromStr for Order {
-    type Err = SocketError;
+    type Err = CoffeeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let splitted: Vec<&str> = s.split(',').map(str::trim).collect();
@@ -29,7 +29,7 @@ impl FromStr for Order {
         match splitted[0] {
             "sale" => {
                 if splitted.len() != 4 {
-                    return Err(SocketError::new(ERR_MISSING_FIELDS));
+                    return Err(InvalidOrder(ERR_MISSING_FIELDS.to_string()));
                 }
                 let coffee = Coffee {
                     name: splitted[1].to_string(),
@@ -40,13 +40,13 @@ impl FromStr for Order {
             }
             "recharge" => {
                 if splitted.len() != 3 {
-                    return Err(SocketError::new(ERR_MISSING_FIELDS));
+                    return Err(InvalidOrder(ERR_MISSING_FIELDS.to_string()));
                 }
                 let amount = Amount::from_str(splitted[1])?;
                 let user_id = splitted[2].parse()?;
                 Ok(Order::Recharge(amount, user_id))
             }
-            _ => Err(SocketError::new(ERR_UNKNOWN_TYPE)),
+            _ => Err(InvalidOrder(ERR_UNKNOWN_TYPE.to_string())),
         }
     }
 }

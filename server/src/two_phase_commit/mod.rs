@@ -1,10 +1,10 @@
 use core::fmt;
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
 use actix::prelude::*;
+use common::error::CoffeeError;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -241,4 +241,11 @@ impl Display for PacketDispatcherError {
     }
 }
 
-impl Error for PacketDispatcherError {}
+impl From<PacketDispatcherError> for CoffeeError {
+    fn from(e: PacketDispatcherError) -> Self {
+        match e {
+            PacketDispatcherError::InsufficientPoints => CoffeeError::InsufficientPoints,
+            _ => Self::new(&e.to_string()),
+        }
+    }
+}

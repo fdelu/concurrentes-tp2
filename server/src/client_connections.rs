@@ -12,11 +12,11 @@ use crate::{
         messages::public::{block_points::BlockPointsMessage, discount::DiscountMessage},
         PacketDispatcher,
     },
-    two_phase_commit::PacketDispatcherError,
 };
 use common::{
+    error::{CoffeeError, FlattenResult},
     packet::{Amount, ClientPacket, ServerPacket, TxId, UserId},
-    socket::{FlattenResult, ReceivedPacket, SocketError},
+    socket::{ReceivedPacket, SocketError},
 };
 
 pub struct ClientConnections {
@@ -60,7 +60,7 @@ impl ClientConnections {
         });
     }
 
-    fn send_error(&mut self, tx_id: TxId, addr: SocketAddr, err: SocketError) {
+    fn send_error(&mut self, tx_id: TxId, addr: SocketAddr, err: CoffeeError) {
         info!("Sending ERROR for tx {}", tx_id);
         self.socket.do_send(SendPacket {
             to: addr,
@@ -90,15 +90,9 @@ impl ClientConnections {
         .boxed_local();
         future
             .then(move |message_res, this, _| {
-                match message_res {
-                    Ok(Ok(_)) => this.send_ready(tx_id, addr, user_id),
-                    Ok(Err(PacketDispatcherError::InsufficientPoints)) => {
-                        this.send_error(tx_id, addr, SocketError::new("Insufficient points"))
-                    }
-                    Ok(Err(_)) => {
-                        this.send_error(tx_id, addr, SocketError::new("packet dispatcher error"))
-                    }
-                    Err(err) => this.send_error(tx_id, addr, err.into()),
+                match message_res.flatten() {
+                    Ok(_) => this.send_ready(tx_id, addr, user_id),
+                    Err(err) => this.send_error(tx_id, addr, err),
                 };
                 async {}.into_actor(this).boxed_local()
             })
@@ -117,7 +111,7 @@ impl ClientConnections {
                 self.send_error(
                     tx_id,
                     addr,
-                    SocketError::new("no prepare for this transaction"),
+                    CoffeeError::new("no prepare for this transaction"),
                 );
                 return async {}.into_actor(self).boxed_local();
             }
@@ -157,12 +151,12 @@ impl Handler<Listen> for ClientConnections {
         async move {
             match socket_actor_addr.send(msg).await.flatten() {
                 Ok(_) => (),
-                Err(e) => return Err(SocketError::from(e)),
+                Err(e) => return Err(e),
             };
 
             match dispatcher_addr.send(Listen {}).await.flatten() {
                 Ok(_) => Ok(()),
-                Err(e) => Err(SocketError::from(e)),
+                Err(e) => Err(e),
             }
         }
         .into_actor(self)

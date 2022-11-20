@@ -1,5 +1,5 @@
+use common::error::{CoffeeError, FlattenResult};
 use common::log::init_logger;
-use common::socket::FlattenResult;
 use tokio::io::{stdin, AsyncReadExt};
 use tracing::info;
 
@@ -27,10 +27,7 @@ async fn main() {
     let dispatcher = PacketDispatcher::new(&cfg);
     let clients = ClientConnections::new(&cfg, dispatcher);
 
-    clients
-        .send(Listen {})
-        .await
-        .flatten()
+    (clients.send(Listen {}).await.flatten() as Result<(), CoffeeError>)
         .expect("Failed to initialize server listener");
 
     info!("Press [ENTER] to stop execution");

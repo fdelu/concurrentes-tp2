@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::socket::SocketError;
+use crate::error::CoffeeError;
 
 pub type UserId = u32;
 pub type TxId = u32;
@@ -17,5 +17,5 @@ pub enum ClientPacket {
 pub enum ServerPacket {
     Ready(TxId),
     Insufficient(TxId),
-    ServerErrror(TxId, SocketError),
+    ServerErrror(TxId, CoffeeError),
 }

@@ -28,7 +28,7 @@ mod write;
 
 use self::read::ReaderLoop;
 use self::write::WriterLoop;
-pub use error::{FlattenResult, SocketError};
+pub use error::SocketError;
 pub use messages::*;
 
 pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
@@ -40,28 +40,46 @@ impl<T: Serialize + Send + Sync + Unpin + 'static> PacketSend for T {}
 pub trait PacketRecv: DeserializeOwned + Send + Sync + Unpin + 'static {}
 impl<T: DeserializeOwned + Send + Sync + Unpin + 'static> PacketRecv for T {}
 
+/// Opciones para configurar el [TcpStream] que va a usar el socket.
+/// Se pasa al [Socket] al momento de instanciarlo.
+/// [Stream::Existing]: Usa un [TcpStream] preexistente.
+/// [Stream::New]: Crea un nuevo [TcpStream].
+/// [Stream::NewBindedTo]: Crea un nuevo [TcpStream], luego de
+/// bindearlo a la dirección IP dada. Esto permite que el otro
+/// extremo de la conexión obtenga los paquetes desde esta dirección IP.
 pub enum Stream {
     Existing(TcpStream),
     NewBindedTo(IpAddr),
     New,
 }
 
+/// Un Actor que se encarga de enviar y recibir paquetes a través de un socket.
 pub struct Socket<S: PacketSend, R: PacketRecv> {
+    // Sends packets to the WriterLoop
     write_tx: UnboundedSender<WriterSend<S>>,
+    // Sends a stop signal
     stop_tx: Option<oneshot::Sender<()>>,
+    // Type marker for the received packets
     _receiver_type: PhantomData<R>,
 }
 
+// Internal helper struct for the socket
 struct SocketRunner<R, S>
 where
     R: PacketRecv,
     S: PacketSend,
 {
+    // Actor that receives packets from the socket
     received_handler: Recipient<ReceivedPacket<R>>,
+    // Receives the stop signal
     stop_rx: oneshot::Receiver<()>,
+    // Contains/creates the TcpStream
     stream: Stream,
+    // Where this socket is connected to
     socket_addr: SocketAddr,
+    // Receiver for the WriterLoop
     write_rx: UnboundedReceiver<WriterSend<S>>,
+    // Type marker for the received packets
     _receiver_type: PhantomData<R>,
 }
 
@@ -70,6 +88,7 @@ where
     R: PacketRecv,
     S: PacketSend,
 {
+    // Run the ReaderLoop and WriterLoop
     async fn run(self) -> Result<(), SocketError> {
         let on_read = self.on_read();
         let stream = match self.stream {
@@ -92,6 +111,7 @@ where
         Ok(())
     }
 
+    // What to do when a packet is received
     fn on_read(&self) -> OnRead<R> {
         let actor = self.received_handler.clone();
         let addr = self.socket_addr;
@@ -100,6 +120,7 @@ where
         })
     }
 
+    // Connects a TcpStream to the specified address
     async fn connect(bind_to: Option<IpAddr>, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("Socket connecting to {}...", addr);
         let stream = if let Some(bind_to) = bind_to {
@@ -119,6 +140,11 @@ where
 }
 
 impl<S: PacketSend, R: PacketRecv> Socket<S, R> {
+    /// Crea un nuevo [Socket]. Parámetros:
+    /// * `stream`: [Stream] con el que se va a crear el [TcpStream].
+    /// * `socket_addr`: Dirección a la que se va a conectar el socket.
+    /// * `received_handler`: Actor que va a recibir los paquetes que lleguen.
+    /// * `end_handler`: Actor que va a recibir un mensaje cuando el socket se cierre.
     pub fn new(
         received_handler: Recipient<ReceivedPacket<R>>,
         end_handler: Recipient<SocketEnd>,
@@ -157,6 +183,7 @@ impl<S: PacketSend, R: PacketRecv> Actor for Socket<S, R> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        // Send a stop signal to the socket
         self.stop_tx.take().and_then(|tx| tx.send(()).ok());
     }
 }
@@ -167,6 +194,7 @@ impl<S: PacketSend, R: PacketRecv> Handler<SocketSend<S>> for Socket<S, R> {
     fn handle(&mut self, msg: SocketSend<S>, _ctx: &mut Context<Self>) -> Self::Result {
         let (result_tx, result_rx) = oneshot::channel();
 
+        // Send it over to the WriterLoop
         if let Err(e) = self.write_tx.send(WriterSend {
             data: msg.data,
             result: Some(result_tx),
