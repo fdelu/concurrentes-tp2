@@ -18,7 +18,7 @@ pub use messages::*;
 
 impl OrderProcessorTrait for OrderProcessor {}
 
-///Actor para procesar ordenes de cafe
+///Actor para comunicacion entre la cafetera y su servidor local
 pub(crate) struct OrderProcessor {
     server_socket: Addr<Socket<ClientPacket, ServerPacket>>,
     active_coffees: HashMap<TxId, (Coffee, Recipient<MakeCoffee>)>,
@@ -45,6 +45,8 @@ impl OrderProcessor {
         })
     }
 
+    /// Crea un identificador de transaccion unico dentro de esta cafetera.
+    /// Tambien guarda ese identificador entre los identificadores activos.
     fn add_tx_id(&mut self, coffee: Option<(Coffee, Recipient<MakeCoffee>)>) -> TxId {
         let tx_id = self.next_tx_id;
         self.next_tx_id = self.next_tx_id.wrapping_add(1);
@@ -55,6 +57,7 @@ impl OrderProcessor {
         tx_id
     }
 
+    /// Saca un identificador de transaccion de los identificadores activos.
     fn remove_tx_id(&mut self, tx_id: TxId) -> Option<(Coffee, Recipient<MakeCoffee>)> {
         let tuple = self.active_coffees.remove(&tx_id);
         if tuple.is_none() {
@@ -66,12 +69,16 @@ impl OrderProcessor {
         tuple
     }
 
+    /// Para cuando se recibio un mensaje ready del servidor.
+    /// Le avisa a la cafetera que puede comenzar la preparacion del cafe.
     fn handle_ready(&mut self, tx_id: TxId) {
         if let Some((coffee, maker)) = self.remove_tx_id(tx_id) {
             maker.do_send(MakeCoffee { coffee, tx_id });
         }
     }
 
+    /// Para cuando se recibio un mensaje insufficient del servidor.
+    /// Imprime el error y descuntinua el identificador de transaccion.
     fn handle_insufficient(&mut self, tx_id: TxId) {
         if let Some((coffee, _)) = self.remove_tx_id(tx_id) {
             info!(
@@ -81,6 +88,8 @@ impl OrderProcessor {
         }
     }
 
+    /// Para cuando se recibio un mensaje error del servidor.
+    /// Imprime el error y descuntinua el identificador de transaccion.
     fn handle_server_error(&mut self, tx_id: TxId, error: CoffeeError) {
         if let Some((coffee, _)) = self.remove_tx_id(tx_id) {
             error!(
@@ -94,6 +103,8 @@ impl OrderProcessor {
 impl Handler<PrepareOrder> for OrderProcessor {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Maneja los mensajes de tipo PrepareOrder.
+    /// Le envia al servidor la orden.
     fn handle(&mut self, msg: PrepareOrder, _ctx: &mut Self::Context) -> Self::Result {
         let coffee = msg.coffee.clone();
         let transaction_id = self.add_tx_id(Some((msg.coffee, msg.maker)));
@@ -122,6 +133,8 @@ impl Handler<PrepareOrder> for OrderProcessor {
 impl Handler<CommitOrder> for OrderProcessor {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Maneja los mensajes de tipo CommitOrder.
+    /// Envia al servidor para conretar la orden.
     fn handle(&mut self, msg: CommitOrder, _ctx: &mut Self::Context) -> Self::Result {
         let server_socket = self.server_socket.clone();
 
@@ -149,6 +162,9 @@ impl Handler<CommitOrder> for OrderProcessor {
 impl Handler<AbortOrder> for OrderProcessor {
     type Result = ();
 
+    /// Maneja los mensajes de tipo AbortOrder.
+    /// Envia al servidor para abortar la orden.
+    /// Esta funcion esta fuera de uso.
     fn handle(&mut self, msg: AbortOrder, _ctx: &mut Self::Context) {
         warn!("Aborting order with transaction id {}", msg.transaction_id)
     }
@@ -157,6 +173,8 @@ impl Handler<AbortOrder> for OrderProcessor {
 impl Handler<AddMoney> for OrderProcessor {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Maneja los mensajes de tipo AddMoney.
+    /// Envia al servidor para agregar dinero a la cuenta de un usuario.
     fn handle(&mut self, msg: AddMoney, _ctx: &mut Self::Context) -> Self::Result {
         let transaction_id = self.add_tx_id(None);
         let server_socket = self.server_socket.clone();
@@ -182,6 +200,7 @@ impl Handler<AddMoney> for OrderProcessor {
 impl Handler<SocketEnd> for OrderProcessor {
     type Result = ();
 
+    /// Maneja el mensaje para finalizar la ejecucion.
     fn handle(&mut self, _msg: SocketEnd, _ctx: &mut Self::Context) -> Self::Result {
         error!("Critical error: server socket closed");
         System::current().stop_with_code(-1);
@@ -191,6 +210,7 @@ impl Handler<SocketEnd> for OrderProcessor {
 impl Handler<ReceivedPacket<ServerPacket>> for OrderProcessor {
     type Result = ();
 
+    /// Recive los mensajes del servidor y los procesa.
     fn handle(
         &mut self,
         msg: ReceivedPacket<ServerPacket>,

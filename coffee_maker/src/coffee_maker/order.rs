@@ -5,6 +5,7 @@ use common::{
     packet::{Amount, UserId},
 };
 
+/// Orden de cafe
 #[derive(Clone)]
 pub struct Coffee {
     pub name: String,
@@ -12,6 +13,7 @@ pub struct Coffee {
     pub cost: Amount,
 }
 
+/// Tipo de orden.
 pub enum Order {
     Sale(Coffee),
     Recharge(Amount, UserId),
