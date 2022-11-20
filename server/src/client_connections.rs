@@ -19,9 +19,13 @@ use common::{
     socket::{ReceivedPacket, SocketError},
 };
 
+/// Maneja las conexiones con clientes.
 pub struct ClientConnections {
+    // Dirección del ConnectionHandler
     socket: Addr<ConnectionHandler<ServerPacket, ClientPacket>>,
+    // Dirección del PacketDispatcher
     dispatcher_addr: Addr<PacketDispatcher>,
+    // Transacciones recibidas
     prep_transactions: HashMap<SocketAddr, HashMap<TxId, UserId>>,
 }
 
@@ -34,6 +38,9 @@ impl Actor for ClientConnections {
 }
 
 impl ClientConnections {
+    /// Crea un nuevo [ClientConnections]. Argumentos:
+    /// - `cfg`: Configuración del servidor.
+    /// - `dispatcher_addr`: Dirección del [PacketDispatcher].
     pub fn new(cfg: &Config, dispatcher_addr: Addr<PacketDispatcher>) -> Addr<Self> {
         let my_addr = SocketAddr::new(cfg.server_ip, cfg.client_port);
         Self::create(|ctx| {

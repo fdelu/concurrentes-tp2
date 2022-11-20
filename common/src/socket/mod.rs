@@ -5,15 +5,11 @@ use std::net::{IpAddr, SocketAddr};
 
 use actix::{Actor, Context, Handler, Recipient, ResponseActFuture, WrapFuture};
 #[cfg(not(test))]
-type TcpSocket = actix_rt::net::TcpSocket;
-#[cfg(not(test))]
-type TcpStream = actix_rt::net::TcpStream;
+use actix_rt::net::{TcpSocket, TcpStream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 #[cfg(test)]
-use test_util::MockTcpSocket as TcpSocket;
-#[cfg(test)]
-use test_util::MockTcpStream as TcpStream;
+use test_util::{MockTcpSocket as TcpSocket, MockTcpStream as TcpStream};
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,

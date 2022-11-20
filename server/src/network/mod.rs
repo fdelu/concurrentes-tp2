@@ -12,7 +12,7 @@ use tracing::{debug, info, trace, warn};
 
 mod connection;
 mod listener;
-pub mod messages;
+mod messages;
 
 #[double]
 use self::connection::Connection;
@@ -29,16 +29,31 @@ use common::socket::{PacketRecv, PacketSend, SocketEnd, SocketError};
 pub trait Packet: PacketSend + PacketRecv {}
 impl<T: PacketSend + PacketRecv> Packet for T {}
 
+/// Actor para manejar las conexiones con otros servidores
+/// y las cafeteras
 pub struct ConnectionHandler<S: PacketSend, R: PacketRecv> {
+    // Conexiones activas
     connections: HashMap<SocketAddr, Connection<S, R>>,
+    // Actor que recibe los mensajes entrantes
     received_handler: Recipient<ReceivedPacket<R>>,
+    // JoinHandle del Listener
     join_listener: Option<JoinHandle<()>>,
+    // IP a la cual bindear el listener y las nuevas conexiones
     bind_to: SocketAddr,
+    // Si iniciar conexiones o no al enviar algo a una address
+    // que no tiene una conexion activa
     start_connections: bool,
+    // Tras cuanto tiempo de inactividad se cierra una conexion
     timeout: Option<Duration>,
 }
 
 impl<S: PacketSend, R: PacketRecv> ConnectionHandler<S, R> {
+    /// Crea un nuevo actor [ConnectionHandler]. Argumentos:
+    /// - `received_handler`: Actor que recibe los mensajes entrantes
+    /// - `bind_to`: IP a la cual bindear el listener y las nuevas conexiones
+    /// - `start_connections`: Si iniciar conexiones o no al enviar algo a una address
+    ///  que no tiene una conexion activa
+    /// - `timeout`: Tras cuanto tiempo de inactividad se cierra una conexion
     pub fn new(
         received_handler: Recipient<ReceivedPacket<R>>,
         bind_to: SocketAddr,
@@ -66,6 +81,7 @@ impl<S: PacketSend, R: PacketRecv> ConnectionHandler<S, R> {
 
         let bind_to = self.bind_to.ip();
         let timeout = self.timeout;
+        // Create Connection if it doesn't exist
         let connection = self.connections.entry(addr).or_insert_with(move || {
             Connection::new(
                 this.clone().recipient(),
@@ -83,7 +99,8 @@ impl<S: PacketSend, R: PacketRecv> Actor for ConnectionHandler<S, R> {
     type Context = Context<Self>;
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        info!("ConnectionHandler stopped");
+        info!("ConnectionHandler binded to {} stopped", self.bind_to);
+        // Stop listener if it's running
         if let Some(join) = self.join_listener.take() {
             join.abort();
         }

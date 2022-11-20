@@ -16,13 +16,17 @@ use common::socket::SocketError;
 #[cfg(test)]
 use mockall::automock;
 
+/// Loop que acepta conexiones de un [TcpListener] y
+/// las envía como mensaje a un Actor dado.
 pub struct Listener {
     listener: TcpListener,
 }
 
 #[cfg_attr(test, automock)]
 impl Listener {
-    pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
+    /// Crea un nuevo Listener. Argumentos:
+    /// - `addr`: Dirección en la cual escuchar.
+    pub(crate) async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
         trace!("Binding listener...");
         let listener = TcpListener::bind(addr).await?;
         trace!("Bound to {:?}", listener.local_addr());
@@ -39,7 +43,10 @@ impl Listener {
         Ok(())
     }
 
-    pub fn run(mut self, add_handler: Recipient<AddStream>) -> JoinHandle<()> {
+    /// Inicia el loop de aceptar conexiones.
+    /// Argumentos:
+    /// - `handler`: Actor al cual enviar los [TcpStream](tokio::net::TcpStream).
+    pub(crate) fn run(mut self, add_handler: Recipient<AddStream>) -> JoinHandle<()> {
         spawn(async move {
             debug!(
                 "Listening for connections ({:?})",
@@ -80,13 +87,13 @@ pub mod test {
 
     /// Guard de [listener_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard {
+    pub(crate) struct Guard {
         pub ctx: __mock_MockListener::__bind::Context,
         guard: MutexGuard<'static, ()>,
     }
 
     /// Función de utilidad para mockear el [Listener].
-    pub fn listener_new_context() -> Guard {
+    pub(crate) fn listener_new_context() -> Guard {
         let m = get_lock(&MTX);
 
         let context = Listener::bind_context();

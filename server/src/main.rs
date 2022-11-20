@@ -11,11 +11,17 @@ use crate::dist_mutex::server_id::ServerId;
 use crate::network::Listen;
 use crate::packet_dispatcher::PacketDispatcher;
 
+/// Módulo de conexiones con clientes.
 pub mod client_connections;
+/// Módulo de configuración.
 mod config;
+/// Módulo de mutex distribuido.
 pub mod dist_mutex;
+/// Módulo de conexiones (otros servidores y clientes).
 mod network;
+/// Módulo de envío de paquetes.
 pub mod packet_dispatcher;
+/// Módulo de commits en 2 fases.
 pub mod two_phase_commit;
 
 #[actix_rt::main]

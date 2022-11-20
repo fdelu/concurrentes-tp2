@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::socket::SocketError;
 
-/// Tipo de error genérico
+/// Tipo de error genérico.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CoffeeError {
     InvalidOrder(String),

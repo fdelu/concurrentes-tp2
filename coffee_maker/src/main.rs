@@ -1,12 +1,15 @@
-mod coffee_maker;
-mod config;
-mod order_processor;
-
 use tokio::{
     fs::File,
     io::{stdin, AsyncReadExt},
 };
 use tracing::info;
+
+/// Módulo de la cafetera
+mod coffee_maker;
+/// Módulo de configuración
+mod config;
+/// Módulo de procesamiento de pedidos
+mod order_processor;
 
 use crate::{
     coffee_maker::{CoffeeMaker, ReadOrdersFrom},
@@ -15,6 +18,8 @@ use crate::{
 };
 use common::log::init_logger;
 
+/// Inicializa la cafetera y el procesador de pedidos, y luego
+/// lee los pedidos según la configuración dada.
 pub async fn start_coffee_maker(cfg: &Config) {
     info!("Initializing...");
     let order_actor = OrderProcessor::new(cfg.server_ip);

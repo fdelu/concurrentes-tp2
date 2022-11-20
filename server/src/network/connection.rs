@@ -14,16 +14,27 @@ use common::socket::{PacketRecv, PacketSend, ReceivedPacket, SocketEnd, SocketEr
 #[cfg(not(test))]
 use common::socket::{Socket, Stream};
 
+/// Maneja la conexión de un socket.
 pub struct Connection<S: PacketSend, R: PacketRecv> {
+    // Dirección del socket
     socket: Addr<Socket<S, R>>,
+    // Task del timeout
     cancel_task: Option<JoinHandle<()>>,
+    // Actor que recibe un mensaje cuando se cierra el socket
     end_handler: Recipient<SocketEnd>,
+    // Dirección del socket
     addr: SocketAddr,
+    // Tiempo de timeout
     timeout: Option<Duration>,
 }
 
 #[cfg_attr(test, automock)]
 impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
+    /// Crea una nueva conexión. Argumentos:
+    /// - `stream`: [Stream] del [Socket].
+    /// - `end_handler`: Actor que recibe un mensaje cuando se cierra el socket.
+    /// - `addr`: Dirección a la cual conectarse.
+    /// - `timeout`: Tiempo de timeout.
     pub fn new(
         end_handler: Recipient<SocketEnd>,
         received_handler: Recipient<ReceivedPacket<R>>,
@@ -49,6 +60,7 @@ impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
         }
     }
 
+    /// Reinicia el timer de timeout, si se configuró uno.
     pub fn restart_timeout(&mut self) {
         if let Some(timeout) = self.timeout {
             self.cancel_timeout();
@@ -61,6 +73,9 @@ impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
         }
     }
 
+    /// Envia un paquete por el socket.
+    /// Nota: Esta función no es `async` sino que devuelve un [Future] manualmente
+    /// para que no mantenga una referencia a `self` durante la espera.
     pub fn send(&self, data: S) -> impl Future<Output = Result<(), SocketError>> {
         let socket = self.socket.clone();
 
