@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
-
+use serde::{Deserialize, Serialize};
 use actix::prelude::*;
 
 use common::AHandler;
 use tracing::{debug, info, trace};
+use common::packet::CoffeeMakerId;
 
 use crate::config::Config;
 use crate::dist_mutex::messages::ack::AckMessage;
@@ -17,6 +18,7 @@ use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
+use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
 use crate::two_phase_commit::messages::commit::CommitMessage;
@@ -33,7 +35,13 @@ pub mod messages;
 pub mod packet;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
-pub type ClientId = u32;
+const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum TransactionId {
+    Discount(ServerId, CoffeeMakerId, u32),
+    Add(ServerId, u32),
+}
 
 pub trait PacketDispatcherTrait:
     AHandler<ReceivedPacket<Packet>>
@@ -51,6 +59,8 @@ pub struct PacketDispatcher {
     socket: Addr<ConnectionHandler<Packet, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
     two_phase_commit: Addr<TwoPhaseCommit<Self>>,
+    points_queue: Vec<QueuePointsMessage>,
+    points_ids_counter: u32,
     config: Config,
 }
 
@@ -93,11 +103,24 @@ impl PacketDispatcher {
                 socket,
                 servers_last_seen,
                 two_phase_commit,
+                points_queue: Vec::new(),
+                points_ids_counter: 0,
                 config: cfg.clone(),
             };
+            ret.initialize_add_points_loop(ctx);
             ret.send_sync_request(ctx);
             ret
         })
+    }
+
+    fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {
+        ctx.run_interval(ADD_POINTS_ATTEMPT_INTERVAL, |me, ctx| {
+            me.try_to_add_points(ctx);
+        });
+    }
+
+    fn try_to_add_points(&mut self, ctx: &mut Context<Self>) {
+
     }
 
     fn send_sync_request(&mut self, ctx: &mut Context<Self>) {

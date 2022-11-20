@@ -1,6 +1,6 @@
-use crate::packet_dispatcher::ClientId;
 use crate::two_phase_commit::TransactionId;
 use serde::{Deserialize, Serialize};
+use common::packet::UserId;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TwoPhaseCommitPacket {
@@ -45,6 +45,6 @@ impl PreparePacket {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Transaction {
-    Discount { id: ClientId, amount: u32 },
-    Increase { id: ClientId, amount: u32 },
+    Discount { id: UserId, amount: u32 },
+    Increase { id: UserId, amount: u32 },
 }

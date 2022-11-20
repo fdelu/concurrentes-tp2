@@ -88,7 +88,7 @@ impl ClientConnections {
             dispatcher_addr
                 .send(BlockPointsMessage {
                     transaction_id,
-                    client_id: user_id,
+                    user_id: user_id,
                     amount,
                 })
                 .await
@@ -125,7 +125,7 @@ impl ClientConnections {
         };
         dispatcher_addr.do_send(DiscountMessage {
             transaction_id: ((user_id as u64) << 32) + tx_id as u64,
-            client_id: user_id,
+            user_id: user_id,
         });
         async {}.into_actor(self).boxed_local()
     }

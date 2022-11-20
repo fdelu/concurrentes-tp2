@@ -10,12 +10,12 @@ use tokio::sync::oneshot;
 
 use common::AHandler;
 use tracing::{debug, info, trace, warn};
+use common::packet::UserId;
 
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
-use crate::packet_dispatcher::ClientId;
 use crate::two_phase_commit::messages::remove_transaction::RemoveTransactionMessage;
 use crate::two_phase_commit::packets::{
     CommitPacket, PreparePacket, RollbackPacket, Transaction, TwoPhaseCommitPacket, VoteNoPacket,
@@ -40,14 +40,14 @@ pub enum TransactionState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClientData {
+pub struct UserData {
     pub points: u32,
 }
 
-pub fn make_initial_database() -> HashMap<ClientId, ClientData> {
+pub fn make_initial_database() -> HashMap<UserId, UserData> {
     let mut database = HashMap::new();
     for client_id in 0..10 {
-        database.insert(client_id, ClientData { points: 100 });
+        database.insert(client_id, UserData { points: 100 });
     }
     database
 }
@@ -58,7 +58,7 @@ pub struct TwoPhaseCommit<P: Actor> {
     transactions_timeouts: HashMap<TransactionId, SpawnHandle>,
     confirmations: HashMap<TransactionId, HashSet<ServerId>>,
     dispatcher: Addr<P>,
-    database: HashMap<ClientId, ClientData>,
+    database: HashMap<UserId, UserData>,
     database_last_update: Timestamp,
 }
 
@@ -67,7 +67,7 @@ impl<P: Actor> Actor for TwoPhaseCommit<P> {
 }
 
 impl<P: Actor> Display for TwoPhaseCommit<P> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[TwoPhaseCommit]")
     }
 }
@@ -112,7 +112,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 id: client_id,
                 amount,
             } => {
-                let client_data = self.database.get_mut(&client_id).unwrap();
+                let client_data = self.get_or_create_user(&client_id);
                 if client_data.points >= amount {
                     debug!(
                         "Client {} has enough points to block (needed: {}, actual: {})",
@@ -135,11 +135,18 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 id: client_id,
                 amount,
             } => {
-                self.database.get_mut(&client_id).unwrap().points += amount;
+                self.get_or_create_user(&client_id).points += amount;
                 self.set_timeout_for_transaction(transaction_id, ctx);
                 true
             }
         }
+    }
+
+    fn get_or_create_user(&mut self, client_id: &UserId) -> &mut UserData {
+        if !self.database.contains_key(client_id) {
+            self.database.insert(*client_id, UserData { points: 100 });
+        }
+        self.database.get_mut(client_id).unwrap()
     }
 
     fn set_timeout_for_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
@@ -172,14 +179,14 @@ impl<P: Actor> TwoPhaseCommit<P> {
                         id: client_id,
                         amount,
                     } => {
-                        let client_data = self.database.get_mut(&client_id).unwrap();
+                        let client_data = self.get_or_create_user(&client_id);
                         client_data.points += amount;
                     }
                     Transaction::Increase {
                         id: client_id,
                         amount,
                     } => {
-                        let client_data = self.database.get_mut(&client_id).unwrap();
+                        let client_data = self.get_or_create_user(&client_id);
                         client_data.points -= amount;
                     }
                 }
@@ -231,6 +238,8 @@ impl<P: AHandler<BroadcastMessage>> TwoPhaseCommit<P> {
 pub enum PacketDispatcherError {
     Timeout,
     InsufficientPoints,
+    DiscountFailed,
+    Other
 }
 
 pub type PacketDispatcherResult<T> = Result<T, PacketDispatcherError>;

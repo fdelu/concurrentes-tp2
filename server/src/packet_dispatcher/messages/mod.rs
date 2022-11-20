@@ -4,3 +4,4 @@ pub mod listen;
 pub mod prune;
 pub mod public;
 pub mod send;
+pub mod add_points;

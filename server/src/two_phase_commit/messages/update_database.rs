@@ -1,16 +1,16 @@
 use crate::dist_mutex::packets::Timestamp;
-use crate::packet_dispatcher::ClientId;
 use crate::two_phase_commit::packets::Transaction;
-use crate::two_phase_commit::{ClientData, TransactionId, TransactionState, TwoPhaseCommit};
+use crate::two_phase_commit::{UserData, TransactionId, TransactionState, TwoPhaseCommit};
 use actix::prelude::*;
 use std::collections::HashMap;
 use tracing::debug;
+use common::packet::UserId;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UpdateDatabaseMessage {
     pub snapshot_from: Timestamp,
-    pub database: HashMap<ClientId, ClientData>,
+    pub database: HashMap<UserId, UserData>,
     pub logs: HashMap<TransactionId, (TransactionState, Transaction)>,
 }
 

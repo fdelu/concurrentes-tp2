@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 
 use crate::error::CoffeeError;
@@ -8,6 +9,8 @@ pub type UserId = u32;
 pub type TxId = u32;
 /// Cantidad de puntos
 pub type Amount = u32;
+/// ID de una cafetera
+pub type CoffeeMakerId = SocketAddr;
 
 /// Paquetes que envía la cafetera al servidor.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]

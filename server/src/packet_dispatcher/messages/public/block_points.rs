@@ -1,65 +1,56 @@
-use crate::packet_dispatcher::ClientId;
 use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
 use crate::{AcquireMessage, PacketDispatcher};
 use actix::prelude::*;
 use tracing::{debug, error, info};
+use common::packet::UserId;
+use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
 pub struct BlockPointsMessage {
     pub transaction_id: TransactionId,
-    pub client_id: ClientId,
+    pub user_id: UserId,
     pub amount: u32,
 }
 
 impl Handler<BlockPointsMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, PacketDispatcherResult<()>>;
 
-    fn handle(&mut self, msg: BlockPointsMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BlockPointsMessage, ctx: &mut Self::Context) -> Self::Result {
         let transaction = Transaction::Discount {
-            id: msg.client_id,
+            id: msg.user_id,
             amount: msg.amount,
         };
 
-        let mutex = self.mutexes.get_mut(&msg.client_id).unwrap();
+        let mutex = self.get_or_create_mutex(ctx, msg.user_id);
         let mutex_c = mutex.clone();
         let tp_commit_addr = self.two_phase_commit.clone();
 
         async move {
-            if mutex_c.send(AcquireMessage {}).await.is_err() {
-                error!("Error from mutex");
-                return Err(PacketDispatcherError::Timeout);
-            };
-
-            info!("Acquired mutex for client {}", msg.client_id);
-            let mut res = Ok(());
-            match tp_commit_addr
+            let action  = move || {
+                tp_commit_addr
                 .send(CommitRequestMessage {
                     id: msg.transaction_id,
                     transaction,
                 })
-                .await
-                .unwrap()
-            {
-                Ok(true) => {
-                    debug!("Transaction (Block) successful");
-                }
-                Ok(false) => {
-                    res = Err(PacketDispatcherError::InsufficientPoints);
-                }
-                Err(e) => {
-                    error!("Transaction failed: {:?}", e);
-                }
-            }
-            if mutex_c.send(crate::ReleaseMessage {}).await.is_err() {
-                return Err(PacketDispatcherError::Timeout);
             };
-            info!("Released mutex for client {}", msg.client_id);
-            res
-        }
-        .into_actor(self)
-        .boxed_local()
+            match mutex_c.send(DoWithLock { action }).await
+            {
+                Ok(Ok(Ok(Ok(true)))) => {
+                    info!("Transaction {} succeeded", msg.transaction_id);
+                    Ok(())
+                },
+                Ok(Ok(Ok(Ok(false)))) =>  {
+                    error!("Transaction {} failed because user has insufficient points", msg.transaction_id);
+                    Err(PacketDispatcherError::InsufficientPoints)
+                },
+                _ => {
+                    error!("Transaction {} failed", msg.transaction_id);
+                    Err(PacketDispatcherError::Other)
+                },
+            }
+        }.into_actor(self).boxed_local()
     }
 }
