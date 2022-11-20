@@ -1,4 +1,6 @@
+use core::fmt;
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
@@ -224,8 +226,18 @@ impl<P: AHandler<BroadcastMessage>> TwoPhaseCommit<P> {
     }
 }
 
+#[derive(Debug)]
 pub enum PacketDispatcherError {
     Timeout,
+    InsufficientPoints,
 }
 
 pub type PacketDispatcherResult<T> = Result<T, PacketDispatcherError>;
+
+impl Display for PacketDispatcherError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Error for PacketDispatcherError {}

@@ -13,7 +13,6 @@ use crate::{
     order_processor::OrderProcessor,
 };
 
-#[actix_rt::main]
 pub async fn start_coffee_maker(cfg: &Config) {
     let file = File::open(&cfg.order_from).unwrap();
     // let _guard = init();
@@ -28,16 +27,15 @@ pub async fn start_coffee_maker(cfg: &Config) {
         })
         .await
         .expect("Failed to send file to CoffeMaker");
-
-    info!("all orders taken");
 }
 
-fn main() {
+#[actix_rt::main]
+async fn main() {
     let config_path = std::env::args().nth(1).expect("No config file provided");
     let cfg = Config::from_file(&config_path);
     let _log_guard = init(&cfg);
 
-    start_coffee_maker(&cfg);
+    start_coffee_maker(&cfg).await;
 
     info!("Presione [ENTER] para detener la ejecución");
     let mut buf = [0u8; 1];

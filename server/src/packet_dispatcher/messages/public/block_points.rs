@@ -33,6 +33,7 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
             };
 
             println!("Acquired mutex for client {}", msg.client_id);
+            let mut res = Ok(());
             match tp_commit_addr
                 .send(CommitRequestMessage {
                     id: msg.transaction_id,
@@ -41,8 +42,11 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
                 .await
                 .unwrap()
             {
-                Ok(_) => {
+                Ok(true) => {
                     println!("Transaction (Block) successful");
+                }
+                Ok(false) => {
+                    res = Err(PacketDispatcherError::InsufficientPoints);
                 }
                 Err(e) => {
                     println!("Transaction failed: {:?}", e);
@@ -52,7 +56,7 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
                 return Err(PacketDispatcherError::Timeout);
             };
             println!("Released mutex for client {}", msg.client_id);
-            Ok(())
+            res
         }
         .into_actor(self)
         .boxed_local()
