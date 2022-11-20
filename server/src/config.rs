@@ -9,6 +9,7 @@ pub struct Config {
     pub server_ip: IpAddr,
     pub servers: Vec<ServerId>,
     pub server_port: u16,
+    pub client_port: u16,
 }
 
 impl Config {

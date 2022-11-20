@@ -20,6 +20,7 @@ pub mod dist_mutex;
 mod network;
 pub mod packet_dispatcher;
 pub mod two_phase_commit;
+pub mod client_connections;
 
 #[actix_rt::main]
 async fn main() {
