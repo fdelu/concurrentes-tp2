@@ -30,11 +30,9 @@ impl<P: Actor> Handler<OkMessage> for DistMutex<P> {
 
         if self.ok_received.is_superset(&msg.connected_servers) {
             println!("{} All ok received", self);
-            self.all_oks_received_channel
-                .take()
-                .unwrap()
-                .send(())
-                .unwrap();
+            if let Some(ch) = self.all_oks_received_channel.take() {
+                ch.send(()).unwrap();
+            }
         }
     }
 }

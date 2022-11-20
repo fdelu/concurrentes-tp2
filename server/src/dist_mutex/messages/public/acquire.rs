@@ -61,7 +61,10 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
                 .await
                 .is_err()
             {
-                println!("[Mutex {}] Timeout while waiting for oks", id);
+                println!(
+                    "[Mutex {}] Timeout while waiting for oks, maybe some server is down",
+                    id
+                );
                 Err(MutexError::Timeout)
             } else {
                 println!("[Mutex {}] All oks received", id);
@@ -128,7 +131,7 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
         self.all_oks_received_channel = Some(tx);
         async move {
             if time::timeout(TIME_UNTIL_ERROR, rx).await.is_err() {
-                println!("Timeout while waiting for oks");
+                println!("Timeout while waiting for oks, but seems that some server has the lock");
                 Err(MutexError::Timeout)
             } else {
                 Ok(())
@@ -151,11 +154,11 @@ mod tests {
     use crate::dist_mutex::messages::ok::OkMessage;
     use crate::dist_mutex::packets::{AckPacket, OkPacket};
     use crate::dist_mutex::server_id::ServerId;
-    use crate::dist_mutex::MutexError;
+    use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
-    use crate::{AcquireMessage, DistMutex, MutexCreationTrait};
+    use crate::AcquireMessage;
     use common::socket::SocketError;
 
     struct TestDispatcher {

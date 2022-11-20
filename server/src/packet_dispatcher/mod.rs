@@ -18,11 +18,21 @@ use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
+use crate::two_phase_commit::messages::commit::CommitMessage;
+use crate::two_phase_commit::messages::forward_database::ForwardDatabaseMessage;
+use crate::two_phase_commit::messages::prepare::PrepareMessage;
+use crate::two_phase_commit::messages::rollback::RollbackMessage;
+use crate::two_phase_commit::messages::update_database::UpdateDatabaseMessage;
+use crate::two_phase_commit::messages::vote_no::VoteNoMessage;
+use crate::two_phase_commit::messages::vote_yes::VoteYesMessage;
+use crate::two_phase_commit::packets::TwoPhaseCommitPacket;
+use crate::two_phase_commit::{make_initial_database, TwoPhaseCommit};
 
 pub mod messages;
 pub mod packet;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
+pub type ClientId = u32;
 
 pub trait PacketDispatcherTrait:
     AHandler<ReceivedPacket<Packet>>
@@ -34,17 +44,20 @@ pub trait PacketDispatcherTrait:
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
-pub(crate) const SERVERS: [ServerId; 3] =
-    [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }];
+pub(crate) const SERVERS: [ServerId; 5] = [
+    ServerId { id: 0 },
+    ServerId { id: 1 },
+    ServerId { id: 2 },
+    ServerId { id: 3 },
+    ServerId { id: 4 },
+];
 
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
     socket: Addr<ConnectionHandler<Packet, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
-    // TODO: Replace with a proper data structure containing
-    // TODO: every user and their amount of points
-    data: Vec<u32>,
+    two_phase_commit: Addr<TwoPhaseCommit<Self>>,
 }
 
 impl Actor for PacketDispatcher {
@@ -67,12 +80,21 @@ impl PacketDispatcher {
                 Some(CONNECTION_TIMEOUT),
             )
             .start();
+            let two_phase_commit = TwoPhaseCommit::new(ctx.address());
+            let mutexes = make_initial_database()
+                .iter()
+                .map(|(&client_id, _)| {
+                    let mutex = DistMutex::new(my_id, client_id, ctx.address()).start();
+                    (client_id, mutex)
+                })
+                .collect();
+
             let mut ret = Self {
                 server_id: my_id,
-                mutexes: HashMap::new(),
+                mutexes,
                 socket,
                 servers_last_seen,
-                data: vec![1, 2, 3, 4, 5, 6],
+                two_phase_commit,
             };
             ret.send_sync_request(ctx);
             ret
@@ -116,20 +138,58 @@ impl PacketDispatcher {
         }
     }
 
+    fn handle_commit(
+        &mut self,
+        from: ServerId,
+        packet: TwoPhaseCommitPacket,
+        _ctx: &mut Context<Self>,
+    ) {
+        match packet {
+            TwoPhaseCommitPacket::Prepare(packet) => {
+                let message = PrepareMessage {
+                    from,
+                    id: packet.id,
+                    transaction: packet.transaction,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::Commit(packet) => {
+                let message = CommitMessage {
+                    id: packet.id,
+                    from,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::Rollback(packet) => {
+                let message = RollbackMessage { id: packet.id };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::VoteYes(packet) => {
+                let message = VoteYesMessage {
+                    id: packet.id,
+                    from,
+                    connected_servers: self.get_connected_servers(),
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+            TwoPhaseCommitPacket::VoteNo(packet) => {
+                let message = VoteNoMessage {
+                    id: packet.id,
+                    from,
+                };
+                self.two_phase_commit.try_send(message).unwrap();
+            }
+        }
+    }
+
     fn handle_sync_request(
         &mut self,
         from: ServerId,
         _packet: SyncRequestPacket,
-        ctx: &mut Context<Self>,
+        _ctx: &mut Context<Self>,
     ) {
-        let packet = SyncResponsePacket {
-            data: self.data.clone(),
-        };
-        ctx.address()
-            .try_send(SendMessage {
-                to: from,
-                packet: Packet::SyncResponse(packet),
-            })
+        self.two_phase_commit
+            .try_send(ForwardDatabaseMessage { to: from })
             .unwrap();
     }
 
@@ -139,8 +199,13 @@ impl PacketDispatcher {
         packet: SyncResponsePacket,
         _ctx: &mut Context<Self>,
     ) {
-        // TODO: wait for all servers to respond and then update data based on the majority
-        self.data = packet.data;
+        self.two_phase_commit
+            .try_send(UpdateDatabaseMessage {
+                snapshot_from: packet.snapshot_from,
+                database: packet.database,
+                logs: packet.logs,
+            })
+            .unwrap();
     }
 
     fn get_or_create_mutex(
