@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use actix::prelude::*;
 
@@ -21,6 +22,8 @@ use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePa
 pub mod messages;
 pub mod packet;
 
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub trait PacketDispatcherTrait:
     AHandler<ReceivedPacket<Packet>>
     + AHandler<BroadcastMessage>
@@ -37,7 +40,7 @@ pub(crate) const SERVERS: [ServerId; 3] =
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
-    socket: Addr<ConnectionHandler<Packet>>,
+    socket: Addr<ConnectionHandler<Packet, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
     // TODO: Replace with a proper data structure containing
     // TODO: every user and their amount of points
@@ -57,7 +60,13 @@ impl PacketDispatcher {
             .collect();
 
         Self::create(|ctx| {
-            let socket = ConnectionHandler::new(ctx.address().recipient(), SocketAddr::from(my_id)).start();
+            let socket = ConnectionHandler::new(
+                ctx.address().recipient(),
+                SocketAddr::from(my_id),
+                true,
+                Some(CONNECTION_TIMEOUT),
+            )
+            .start();
             let mut ret = Self {
                 server_id: my_id,
                 mutexes: HashMap::new(),
@@ -158,7 +167,7 @@ impl PacketDispatcher {
         &mut self,
         to: ServerId,
         data: Packet,
-    ) -> Request<ConnectionHandler<Packet>, SendPacket<Packet>> {
+    ) -> Request<ConnectionHandler<Packet, Packet>, SendPacket<Packet>> {
         self.socket.send(SendPacket {
             to: to.into(),
             data,

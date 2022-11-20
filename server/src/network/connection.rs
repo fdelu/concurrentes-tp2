@@ -8,29 +8,28 @@ use tokio::{
     time::Duration,
 };
 
-use super::Packet;
 #[cfg(test)]
 use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
-use common::socket::{ReceivedPacket, SocketEnd, SocketError, SocketSend};
+use common::socket::{PacketRecv, PacketSend, ReceivedPacket, SocketEnd, SocketError, SocketSend};
 #[cfg(not(test))]
 use common::socket::{Socket, Stream};
 
-pub struct Connection<P: Packet> {
-    socket: Addr<Socket<P, P>>,
+pub struct Connection<S: PacketSend, R: PacketRecv> {
+    socket: Addr<Socket<S, R>>,
     cancel_task: Option<JoinHandle<()>>,
     end_handler: Recipient<SocketEnd>,
     addr: SocketAddr,
+    timeout: Option<Duration>,
 }
 
-const CANCEL_TIMEOUT: Duration = Duration::from_secs(120);
-
 #[cfg_attr(test, automock)]
-impl<P: Packet> Connection<P> {
+impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
     pub fn new(
         end_handler: Recipient<SocketEnd>,
-        received_handler: Recipient<ReceivedPacket<P>>,
+        received_handler: Recipient<ReceivedPacket<R>>,
         addr: SocketAddr,
         stream: Stream,
+        timeout: Option<Duration>,
     ) -> Self {
         let socket = Socket::new(received_handler, end_handler.clone(), addr, stream);
         let mut this = Connection {
@@ -38,6 +37,7 @@ impl<P: Packet> Connection<P> {
             cancel_task: None,
             end_handler,
             addr,
+            timeout,
         };
         this.restart_timeout();
         this
@@ -50,16 +50,18 @@ impl<P: Packet> Connection<P> {
     }
 
     pub fn restart_timeout(&mut self) {
-        self.cancel_timeout();
-        let end_handler = self.end_handler.clone();
-        let addr = self.addr;
-        self.cancel_task = Some(spawn(async move {
-            tokio::time::sleep(CANCEL_TIMEOUT).await;
-            end_handler.do_send(SocketEnd { addr });
-        }));
+        if let Some(timeout) = self.timeout {
+            self.cancel_timeout();
+            let end_handler = self.end_handler.clone();
+            let addr = self.addr;
+            self.cancel_task = Some(spawn(async move {
+                tokio::time::sleep(timeout).await;
+                end_handler.do_send(SocketEnd { addr });
+            }));
+        }
     }
 
-    pub fn send(&self, data: P) -> impl Future<Output = Result<(), SocketError>> {
+    pub fn send(&self, data: S) -> impl Future<Output = Result<(), SocketError>> {
         let socket = self.socket.clone();
 
         async move { socket.send(SocketSend { data }).await? }
@@ -70,9 +72,10 @@ impl<P: Packet> Connection<P> {
 pub mod test {
     use std::sync::{Mutex, MutexGuard};
 
+    use common::socket::{PacketRecv, PacketSend};
     use mockall::lazy_static;
 
-    use super::{super::Packet, MockConnection as Connection, __mock_MockConnection};
+    use super::{MockConnection as Connection, __mock_MockConnection};
 
     // ver https://github.com/asomers/mockall/blob/master/mockall/examples/synchronization.rs
     lazy_static! {
@@ -88,13 +91,13 @@ pub mod test {
 
     /// Guard de [connection_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard<P: Packet> {
-        pub ctx: __mock_MockConnection::__new::Context<P>,
+    pub struct Guard<S: PacketSend, R: PacketRecv> {
+        pub ctx: __mock_MockConnection::__new::Context<S, R>,
         guard: MutexGuard<'static, ()>,
     }
 
     /// Función de utilidad para mockear la [Connection].
-    pub fn connection_new_context<P: Packet>() -> Guard<P> {
+    pub fn connection_new_context<S: PacketSend, R: PacketRecv>() -> Guard<S, R> {
         let m = get_lock(&MTX);
 
         let context = Connection::new_context();
