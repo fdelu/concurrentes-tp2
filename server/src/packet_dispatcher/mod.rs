@@ -5,7 +5,7 @@ use std::time::Duration;
 use actix::prelude::*;
 
 use common::AHandler;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 use crate::config::Config;
 use crate::dist_mutex::messages::ack::AckMessage;
@@ -62,13 +62,14 @@ impl Actor for PacketDispatcher {
 impl PacketDispatcher {
     pub fn new(cfg: &Config) -> Addr<Self> {
         let my_addr = SocketAddr::new(cfg.server_ip, cfg.server_port);
-        let my_id = ServerId::new(my_addr.ip());
+        let my_id = ServerId::new(cfg.server_ip);
         let servers_last_seen = cfg
             .servers
             .iter()
             .filter(|&&server_id| server_id != my_id)
             .map(|&server_id| (server_id, None))
             .collect();
+        trace!("Initial servers: {:?}", servers_last_seen);
 
         Self::create(|ctx| {
             let socket = ConnectionHandler::new(

@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::dist_mutex::packets::get_timestamp;
 use crate::dist_mutex::server_id::ServerId;
@@ -14,6 +14,8 @@ impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
         let origin_addr = msg.addr;
 
         let packet: Packet = msg.data;
+
+        trace!("Received a packet from {}: {:?}", origin_addr, packet);
 
         self.servers_last_seen
             .insert(origin_addr.into(), Some(get_timestamp()));

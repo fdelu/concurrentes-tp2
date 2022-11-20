@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::packet_dispatcher::packet::Packet;
 use crate::PacketDispatcher;
@@ -19,7 +19,7 @@ impl Handler<BroadcastMessage> for PacketDispatcher {
             "Broadcasting to {} servers",
             self.get_connected_servers().len()
         );
-        debug!("Connected servers: {:?}", self.get_connected_servers());
+        trace!("Connected servers: {:?}", self.get_connected_servers());
 
         let futures: Vec<_> = self
             .get_connected_servers()

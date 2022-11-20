@@ -8,7 +8,7 @@ use actix::{
 use actix_rt::task::JoinHandle;
 
 use mockall_double::double;
-use tracing::{debug, info};
+use tracing::{debug, info, trace, warn};
 
 mod connection;
 mod listener;
@@ -61,10 +61,10 @@ impl<S: PacketSend, R: PacketRecv> ConnectionHandler<S, R> {
         addr: SocketAddr,
     ) -> Option<&mut Connection<S, R>> {
         if !self.start_connections {
-            return None;
+            return self.connections.get_mut(&addr);
         }
 
-        let bind_to = addr.ip();
+        let bind_to = self.bind_to.ip();
         let timeout = self.timeout;
         let connection = self.connections.entry(addr).or_insert_with(move || {
             Connection::new(
@@ -101,9 +101,13 @@ impl<S: PacketSend, R: PacketRecv> Handler<SendPacket<S>> for ConnectionHandler<
                 connection.restart_timeout();
                 connection.send(msg.data).into_actor(self).boxed_local()
             }
-            None => async { Err(SocketError::new("Connection not found")) }
-                .into_actor(self)
-                .boxed_local(),
+            None => {
+                warn!("Tried to send packet to {}, but it isn't connected", msg.to);
+                trace!("Available connections: {:?}", self.connections.keys());
+                async { Err(SocketError::new("Connection not found")) }
+                    .into_actor(self)
+                    .boxed_local()
+            }
         }
     }
 }

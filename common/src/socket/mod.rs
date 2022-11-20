@@ -108,7 +108,7 @@ where
                 IpAddr::V6(_) => TcpSocket::new_v6(),
             }?;
             socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
-            trace!("Port used: {:?}", socket.local_addr().map(|a| a.port()));
+            trace!("Binded socket to {} before connecting to {}", bind_to, addr);
             socket.connect(addr).await
         } else {
             TcpStream::connect(addr).await

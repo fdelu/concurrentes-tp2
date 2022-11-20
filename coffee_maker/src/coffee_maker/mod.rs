@@ -22,7 +22,7 @@ use self::order::Order;
 
 pub struct CoffeeMaker<O: OrderProcessorTrait> {
     order_processor: Addr<O>,
-    fail_probability: i32,
+    fail_probability: u8,
 }
 
 impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
@@ -30,7 +30,7 @@ impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
 }
 
 impl<O: OrderProcessorTrait> CoffeeMaker<O> {
-    pub fn new(order_processor: Addr<O>, fail_probability: i32) -> Addr<Self> {
+    pub fn new(order_processor: Addr<O>, fail_probability: u8) -> Addr<Self> {
         Self {
             order_processor,
             fail_probability,
@@ -54,7 +54,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     }
 
     /// Prepares coffee, the time it takes is random and theres a chance to fail.
-    async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId, fail_probability: i32) {
+    async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId, fail_probability: u8) {
         let mut rng = rand::thread_rng();
         sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
         if rng.gen_range(0..100) < fail_probability {
@@ -95,6 +95,10 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
         async move {
             loop {
                 match lines.next_line().await {
+                    Ok(Some(line)) if line.is_empty() => {
+                        info!("Empty line received, stopping");
+                        break;
+                    }
                     Ok(Some(line)) => match line.parse::<Order>() {
                         Ok(order) => this.do_send(AddOrder { order }),
                         Err(e) => error!("Failed to parse order: {}", e),

@@ -8,6 +8,7 @@ pub struct Config {
     pub order_from: String,
     pub server_ip: SocketAddr,
     pub logs: LogConfig,
+    pub fail_probability: u8,
 }
 
 impl Config {

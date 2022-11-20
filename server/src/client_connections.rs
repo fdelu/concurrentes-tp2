@@ -48,6 +48,7 @@ impl ClientConnections {
     }
 
     fn send_ready(&mut self, tx_id: TxId, addr: SocketAddr, user_id: UserId) {
+        info!("Sending READY for user {} (tx {})", user_id, tx_id);
         let trans_to_user = self
             .prep_transactions
             .entry(addr)
@@ -60,6 +61,7 @@ impl ClientConnections {
     }
 
     fn send_error(&mut self, tx_id: TxId, addr: SocketAddr, err: SocketError) {
+        info!("Sending ERROR for tx {}", tx_id);
         self.socket.do_send(SendPacket {
             to: addr,
             data: ServerPacket::ServerErrror(tx_id, err),

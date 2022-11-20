@@ -33,7 +33,6 @@ impl Listener {
         listener: &mut TcpListener,
         handler: &Recipient<AddStream>,
     ) -> Result<(), SocketError> {
-        trace!("Accepting connection...");
         let (stream, addr) = listener.accept().await?;
         trace!("Accepted connection from {}", addr);
         handler.send(AddStream { stream, addr }).await?;
