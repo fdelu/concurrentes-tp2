@@ -1,23 +1,24 @@
 mod coffee_maker;
+mod config;
 mod log;
 mod order_processor;
-use std::{fs::File, io::Read, net::SocketAddr};
+use std::{fs::File, io::Read};
 
 use tracing::info;
 
 use crate::{
     coffee_maker::{CoffeeMaker, ReadOrdersFrom},
+    config::Config,
     log::init,
     order_processor::OrderProcessor,
 };
 
 #[actix_rt::main]
-pub async fn start_coffee_maker(path: &str) {
-    let _log_guard = init();
-    let file = File::open(path).unwrap();
+pub async fn start_coffee_maker(cfg: &Config) {
+    let file = File::open(&cfg.order_from).unwrap();
     // let _guard = init();
     info!("started coffee making");
-    let server_addr = SocketAddr::from(([127, 0, 0, 1], 34255));
+    let server_addr = cfg.server_ip.parse().expect("Invalid server ip");
     let order_actor = OrderProcessor::new(server_addr);
     let maker_actor = CoffeeMaker::new(order_actor, 15);
 
@@ -32,10 +33,13 @@ pub async fn start_coffee_maker(path: &str) {
 }
 
 fn main() {
-    start_coffee_maker("./orders/one_order.csv");
+    let config_path = std::env::args().nth(1).expect("No config file provided");
+    let cfg = Config::from_file(&config_path);
+    let _log_guard = init(&cfg);
+
+    start_coffee_maker(&cfg);
 
     info!("Presione [ENTER] para detener la ejecución");
-
     let mut buf = [0u8; 1];
     std::io::stdin().read_exact(&mut buf).unwrap_or(());
 }

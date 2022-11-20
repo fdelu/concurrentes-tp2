@@ -1,38 +1,30 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use std::net::SocketAddr;
-
-const PORT: u16 = 8080;
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ServerId {
-    pub id: u16,
+    pub ip: IpAddr,
 }
 
 impl ServerId {
-    pub fn new(id: u16) -> Self {
-        Self { id }
+    pub fn new(ip: IpAddr) -> Self {
+        Self { ip }
     }
-}
 
-impl From<ServerId> for SocketAddr {
-    fn from(server_id: ServerId) -> Self {
-        let ip = format!("127.0.0.{}", server_id.id + 1);
-        let port = PORT;
-        SocketAddr::new(ip.parse().unwrap(), port)
+    pub fn get_socket_addr(&self, port: u16) -> SocketAddr {
+        SocketAddr::new(self.ip, port)
     }
 }
 
 impl From<SocketAddr> for ServerId {
-    fn from(socket_addr: SocketAddr) -> Self {
-        let ip = socket_addr.ip().to_string();
-        let id: u16 = ip.split('.').last().unwrap().parse().unwrap();
-        Self { id: id - 1 }
+    fn from(addr: SocketAddr) -> Self {
+        Self::new(addr.ip())
     }
 }
 
 impl Display for ServerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[ServerId {}]", self.id)
+        write!(f, "[ServerId {}]", self.ip)
     }
 }

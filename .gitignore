@@ -10,4 +10,4 @@ desktop.ini
 
 /target
 
-/coffee_maker/src/logs
+**/logs/*

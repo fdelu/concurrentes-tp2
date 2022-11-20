@@ -1,0 +1,5 @@
+{
+    "order_from": "./orders/one_order.csv",
+    "server_ip": "127.0.0.1:34255",
+    "logs_folder": "./logs"
+}

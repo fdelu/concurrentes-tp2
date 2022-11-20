@@ -25,7 +25,9 @@ pub mod packets;
 
 const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
 
-pub type TransactionId = u32;
+/// Unique identifier for a transaction. Must be the size of [TxId](common::packet::TxId)
+/// and [UserId](common::packet::UserId) combined.
+pub type TransactionId = u64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {

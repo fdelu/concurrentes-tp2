@@ -1,8 +1,10 @@
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::__tracing_subscriber_SubscriberExt, Registry};
 
-pub fn init() -> WorkerGuard {
-    let file_appender = tracing_appender::rolling::hourly("./src/logs", "logs.log");
+use crate::config::Config;
+
+pub fn init(cfg: &Config) -> WorkerGuard {
+    let file_appender = tracing_appender::rolling::hourly(&cfg.logs_folder, "logs.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let subscriber = Registry::default()
         .with(

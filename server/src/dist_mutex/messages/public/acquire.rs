@@ -146,6 +146,7 @@ impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
 #[allow(unused_must_use, clippy::type_complexity)]
 mod tests {
     use std::collections::HashSet;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::sync::{Arc, Mutex};
 
     use actix::prelude::*;
@@ -200,7 +201,7 @@ mod tests {
         };
         let dispatcher_addr = dispatcher.start();
         let resource_id = 1;
-        let server_id = ServerId { id: 1 };
+        let server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
         let mutex = DistMutex::new(server_id, resource_id, dispatcher_addr);
         let mutex_addr = mutex.start();
         (mutex_addr, broadcasts, prunes)
@@ -233,7 +234,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_with_all_acks_received_returns_ok() {
         let (mutex, _, _) = create_mutex();
-        let another_server_id = ServerId::new(3);
+        let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
         let resource_id = 1;
         let packet = AckPacket { id: resource_id };
@@ -254,7 +255,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_with_ack_but_no_ok_returns_timeout() {
         let (mutex, _, _) = create_mutex();
-        let another_server_id = ServerId::new(2);
+        let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let resource_id = 1;
         let packet = AckPacket { id: resource_id };
         let ack = AckMessage::new(another_server_id, packet);
@@ -269,8 +270,8 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_with_oks_received_from_all_servers_that_sent_ack_means_i_have_the_lock() {
         let (mutex, _, _) = create_mutex();
-        let server_id_1 = ServerId::new(1);
-        let server_id_2 = ServerId::new(2);
+        let server_id_1 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
         let resource_id = 1;
@@ -288,8 +289,8 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_with_timeout_but_lock_acquired_sends_prune_to_dispatcher() {
         let (mutex, _, prunes) = create_mutex();
-        let server_id_1 = ServerId::new(1);
-        let server_id_2 = ServerId::new(2);
+        let server_id_1 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
         let resource_id = 1;
@@ -311,7 +312,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_without_timeout_does_not_send_prune_to_dispatcher() {
         let (mutex, _, _) = create_mutex();
-        let another_server_id = ServerId::new(3);
+        let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
         let resource_id = 1;
         let packet = AckPacket { id: resource_id };

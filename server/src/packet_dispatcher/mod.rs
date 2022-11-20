@@ -6,6 +6,7 @@ use actix::prelude::*;
 
 use common::AHandler;
 
+use crate::config::Config;
 use crate::dist_mutex::messages::ack::AckMessage;
 use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
@@ -44,20 +45,13 @@ pub trait PacketDispatcherTrait:
 
 impl PacketDispatcherTrait for PacketDispatcher {}
 
-pub(crate) const SERVERS: [ServerId; 5] = [
-    ServerId { id: 0 },
-    ServerId { id: 1 },
-    ServerId { id: 2 },
-    ServerId { id: 3 },
-    ServerId { id: 4 },
-];
-
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
     socket: Addr<ConnectionHandler<Packet, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
     two_phase_commit: Addr<TwoPhaseCommit<Self>>,
+    config: Config,
 }
 
 impl Actor for PacketDispatcher {
@@ -65,8 +59,11 @@ impl Actor for PacketDispatcher {
 }
 
 impl PacketDispatcher {
-    pub fn new(my_id: ServerId) -> Addr<Self> {
-        let servers_last_seen = SERVERS
+    pub fn new(cfg: &Config) -> Addr<Self> {
+        let my_addr = SocketAddr::new(cfg.server_ip, cfg.server_port);
+        let my_id = ServerId::new(my_addr.ip());
+        let servers_last_seen = cfg
+            .servers
             .iter()
             .filter(|&&server_id| server_id != my_id)
             .map(|&server_id| (server_id, None))
@@ -75,7 +72,7 @@ impl PacketDispatcher {
         Self::create(|ctx| {
             let socket = ConnectionHandler::new(
                 ctx.address().recipient(),
-                SocketAddr::from(my_id),
+                my_addr,
                 true,
                 Some(CONNECTION_TIMEOUT),
             )
@@ -95,6 +92,7 @@ impl PacketDispatcher {
                 socket,
                 servers_last_seen,
                 two_phase_commit,
+                config: cfg.clone(),
             };
             ret.send_sync_request(ctx);
             ret
@@ -234,7 +232,7 @@ impl PacketDispatcher {
         data: Packet,
     ) -> Request<ConnectionHandler<Packet, Packet>, SendPacket<Packet>> {
         self.socket.send(SendPacket {
-            to: to.into(),
+            to: to.get_socket_addr(self.config.server_port),
             data,
         })
     }

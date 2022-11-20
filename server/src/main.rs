@@ -6,14 +6,16 @@ use std::time::Duration;
 
 use tokio::time::sleep;
 
+use crate::config::Config;
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::server_id::ServerId;
 use crate::network::Listen;
 use crate::packet_dispatcher::messages::public::block_points::BlockPointsMessage;
 use crate::packet_dispatcher::messages::public::discount::DiscountMessage;
-use crate::packet_dispatcher::{PacketDispatcher, SERVERS};
+use crate::packet_dispatcher::PacketDispatcher;
 
+mod config;
 pub mod dist_mutex;
 mod network;
 pub mod packet_dispatcher;
@@ -21,19 +23,16 @@ pub mod two_phase_commit;
 
 #[actix_rt::main]
 async fn main() {
-    let n: usize = std::env::var("N")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse()
-        .unwrap();
-    let dispatcher = PacketDispatcher::new(SERVERS[n]);
+    let config_path = std::env::args().nth(1).expect("No config file provided");
+    let cfg = Config::from_file(&config_path);
+    /*
+    let addr: SocketAddr = cfg.server_ip;
+    let id: ServerId = addr.into();
+    let n: u64 = cfg.server_ip.split('.').last().unwrap().parse().unwrap();
 
-    let addr: SocketAddr = SERVERS[n].into();
-    println!(
-        "I am server {} (addr: {}, {})",
-        n,
-        addr,
-        ServerId::from(addr)
-    );
+    let dispatcher = PacketDispatcher::new(id, &cfg);
+
+    println!("I am server {} (addr: {})", ServerId::from(addr).id, addr);
 
     dispatcher.try_send(Listen {}).unwrap();
 
@@ -46,7 +45,7 @@ async fn main() {
     }
     transaction_ids
         .iter_mut()
-        .for_each(|x| *x += n as u32 * 1000);
+        .for_each(|x| *x += n as u64 * 1000);
 
     dispatcher
         .send(BlockPointsMessage {
@@ -57,7 +56,7 @@ async fn main() {
         .await
         .unwrap();
 
-    /*
+
     dispatcher
         .send(BlockPointsMessage {
             transaction_id: transaction_ids[1],
@@ -84,7 +83,7 @@ async fn main() {
         })
         .await
         .unwrap();
-     */
+
 
     dispatcher
         .send(BlockPointsMessage {
@@ -117,4 +116,5 @@ async fn main() {
     println!("[main] Done transaction");
 
     sleep(std::time::Duration::from_secs(600)).await;
+         */
 }

@@ -18,10 +18,12 @@ impl Handler<SendMessage> for PacketDispatcher {
 
     fn handle(&mut self, msg: SendMessage, _ctx: &mut Self::Context) -> Self::Result {
         let socket_addr = self.socket.clone();
+        let id: ServerId = msg.to.into();
+        let port = self.config.server_port;
         async move {
             match socket_addr
                 .send(SendPacket {
-                    to: msg.to.into(),
+                    to: id.get_socket_addr(port),
                     data: msg.packet,
                 })
                 .await?
