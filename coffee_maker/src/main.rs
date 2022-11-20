@@ -15,6 +15,7 @@ use crate::{
 };
 use common::log::init_logger;
 
+/// Inicializa los actores de la cafetera.
 pub async fn start_coffee_maker(cfg: &Config) {
     info!("Initializing...");
     let order_actor = OrderProcessor::new(cfg.server_ip);

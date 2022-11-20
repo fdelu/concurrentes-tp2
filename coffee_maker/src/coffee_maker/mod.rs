@@ -20,6 +20,7 @@ pub use self::messages::*;
 pub use self::order::Coffee;
 use self::order::Order;
 
+///Actor para atender ordenes de cafe y prepararlas
 pub struct CoffeeMaker<O: OrderProcessorTrait> {
     order_processor: Addr<O>,
     fail_probability: u8,
@@ -38,7 +39,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
         .start()
     }
 
-    ///checks the type of order
+    ///matchea el tipo de orden
     fn process_order(&self, order: Order, ctx: &Context<Self>) {
         match order {
             Order::Sale(coffee) => {
@@ -53,7 +54,8 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
         }
     }
 
-    /// Prepares coffee, the time it takes is random and theres a chance to fail.
+    /// Prepara el cafe, el tiempo de preparacion es aleatorio y si falla tambien.
+    /// La probabilidad de que falle se define en la variable fail_probability
     async fn make_coffee(processor: Addr<O>, coffee: Coffee, tx_id: TxId, fail_probability: u8) {
         let mut rng = rand::thread_rng();
         sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
@@ -78,6 +80,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
 impl<O: OrderProcessorTrait> Handler<AddOrder> for CoffeeMaker<O> {
     type Result = ();
 
+    /// Hadlea al recibir un mensaje de tipo AddOrder una nueva order.
     fn handle(&mut self, msg: AddOrder, ctx: &mut Self::Context) -> Self::Result {
         self.process_order(msg.order, ctx);
     }
@@ -88,6 +91,8 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
 {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Handlea el mensaje de tipo ReadOrdersFrom<R> que le indica como recibir las ordenes
+    /// de cafes.
     fn handle(&mut self, msg: ReadOrdersFrom<R>, ctx: &mut Context<Self>) -> Self::Result {
         let reader = BufReader::new(msg.reader);
         let mut lines = reader.lines();
@@ -121,6 +126,7 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
 impl<O: OrderProcessorTrait> Handler<MakeCoffee> for CoffeeMaker<O> {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Recibe un mensaje para preparar cafe y lo prepara
     fn handle(&mut self, msg: MakeCoffee, _ctx: &mut Context<Self>) -> Self::Result {
         let addr = self.order_processor.clone();
         let fail_probability = self.fail_probability;
@@ -152,6 +158,8 @@ mod test {
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::mpsc::UnboundedSender;
 
+    /// Estructura para corroborar que los mensajes recibidos
+    /// fueron los correctos.
     struct RequieredMessages {
         prepare_expected: u32,
         commit_expected: u32,
@@ -162,6 +170,7 @@ mod test {
     }
 
     impl RequieredMessages {
+        /// Inicializacion, recibe los valores que esperar.
         fn new(prepare: u32, commit: u32, add_points: u32) -> RequieredMessages {
             RequieredMessages {
                 prepare_expected: prepare,
@@ -185,6 +194,7 @@ mod test {
             self.add_points_real += 1;
         }
 
+        /// Corrobora si los valores esperados son iguales a los reales.
         fn check(&self) {
             assert_eq!(self.prepare_expected, self.prepare_real);
             assert_eq!(self.commit_expected, self.commit_real);
@@ -192,6 +202,8 @@ mod test {
         }
     }
 
+    /// Procesa los mensajes de la cafetera, corrobora que sea lo esperado
+    /// y le responde.
     async fn order_ready_server(
         rx: &mut UnboundedReceiver<ClientPacket>,
         socket: &Addr<Socket<ServerPacket, ClientPacket>>,
@@ -236,6 +248,7 @@ mod test {
         println!("done")
     }
 
+    /// Mock del servidor
     struct ServerMock {
         sender: UnboundedSender<ClientPacket>,
     }
