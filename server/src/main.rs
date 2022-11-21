@@ -1,14 +1,14 @@
 use actix::Supervisor;
 use common::error::{CoffeeError, FlattenResult};
 use common::log::init_logger;
-use tokio::io::{AsyncReadExt, stdin};
+use tokio::io::{stdin, AsyncReadExt};
 use tracing::info;
 
 use crate::client_connections::ClientConnections;
 use crate::config::Config;
-use server_id::ServerId;
 use crate::network::Listen;
 use crate::packet_dispatcher::PacketDispatcher;
+use server_id::ServerId;
 
 /// Módulo de conexiones con clientes.
 pub mod client_connections;
@@ -20,10 +20,10 @@ pub mod dist_mutex;
 mod network;
 /// Módulo de envío de paquetes.
 pub mod packet_dispatcher;
-/// Módulo de commits en 2 fases.
-pub mod two_phase_commit;
 /// Modulo de identificación de servidores.
 pub mod server_id;
+/// Módulo de commits en 2 fases.
+pub mod two_phase_commit;
 
 #[actix_rt::main]
 async fn main() {

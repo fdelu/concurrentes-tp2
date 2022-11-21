@@ -200,12 +200,12 @@ mod tests {
     use crate::dist_mutex::messages::AckMessage;
     use crate::dist_mutex::messages::AcquireMessage;
     use crate::dist_mutex::messages::OkMessage;
-    use crate::server_id::ServerId;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::BroadcastMessage;
     use crate::packet_dispatcher::messages::DieMessage;
     use crate::packet_dispatcher::messages::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
+    use crate::server_id::ServerId;
     use common::socket::SocketError;
 
     struct TestDispatcher {

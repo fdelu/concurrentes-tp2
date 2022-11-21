@@ -1,9 +1,9 @@
 use crate::dist_mutex::packets::{MutexPacket, ResourceId, Timestamp};
-use crate::server_id::ServerId;
 use crate::packet_dispatcher::messages::DieMessage;
 use crate::packet_dispatcher::messages::PruneMessage;
 use crate::packet_dispatcher::messages::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
+use crate::server_id::ServerId;
 use actix::fut::LocalBoxActorFuture;
 use actix::prelude::*;
 use common::error::FlattenResult;
