@@ -3,7 +3,7 @@ use std::{fs::File, io::Read, net::IpAddr};
 use common::log::LogConfig;
 use serde::Deserialize;
 
-use crate::dist_mutex::server_id::ServerId;
+use crate::server_id::ServerId;
 
 #[derive(Deserialize, Clone)]
 pub struct Config {

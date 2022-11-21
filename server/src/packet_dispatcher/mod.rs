@@ -13,7 +13,7 @@ use crate::dist_mutex::messages::AckMessage;
 use crate::dist_mutex::messages::OkMessage;
 use crate::dist_mutex::messages::RequestMessage;
 use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
-use crate::dist_mutex::server_id::ServerId;
+use crate::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, SendPacket};
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket};

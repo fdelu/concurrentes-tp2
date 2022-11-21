@@ -1,5 +1,5 @@
 use crate::dist_mutex::packets::{MutexPacket, ResourceId, Timestamp};
-use crate::dist_mutex::server_id::ServerId;
+use crate::server_id::ServerId;
 use crate::packet_dispatcher::messages::DieMessage;
 use crate::packet_dispatcher::messages::PruneMessage;
 use crate::packet_dispatcher::messages::SendMessage;
@@ -18,7 +18,6 @@ use tracing::debug;
 pub mod messages;
 pub mod messages_impls;
 pub mod packets;
-pub mod server_id;
 
 #[cfg(not(test))]
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
