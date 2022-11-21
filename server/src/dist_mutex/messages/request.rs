@@ -68,7 +68,6 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
                     self, msg.from, my_timestamp, msg.timestamp
                 );
                 self.queue.push((msg.timestamp, msg.from));
-                self.queue.sort_by_key(|(timestamp, _)| *timestamp);
             }
         } else {
             debug!(

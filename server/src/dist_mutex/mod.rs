@@ -11,6 +11,7 @@ use common::AHandler;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use common::error::FlattenResult;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -47,6 +48,13 @@ pub enum MutexError {
     Timeout,
     Disconnected,
     Mailbox(String),
+}
+
+impl<T> FlattenResult<T, MutexError> for MutexError
+{
+    fn flatten(self) -> Result<T, MutexError> {
+        Err(self)
+    }
 }
 
 impl From<MailboxError> for MutexError {

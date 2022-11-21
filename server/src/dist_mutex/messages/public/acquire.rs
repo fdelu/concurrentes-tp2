@@ -42,15 +42,12 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
         let timestamp = packet.timestamp;
 
         self.dispatcher
-            .try_send(BroadcastMessage {
+            .do_send(BroadcastMessage {
                 packet: Packet::Mutex(MutexPacket::Request(packet)),
-            })
-            .unwrap();
+            });
 
         self.lock_timestamp = Some(timestamp);
-
         self.queue.push((timestamp, self.server_id));
-        self.queue.sort_by_key(|(timestamp, _)| *timestamp);
 
         let (tx, rx) = oneshot::channel();
         self.all_oks_received_channel = Some(tx);
