@@ -1,3 +1,4 @@
+use crate::packet_dispatcher::messages::add_points::AddPointsMessage;
 use crate::PacketDispatcher;
 use actix::prelude::*;
 use common::packet::UserId;
@@ -8,6 +9,15 @@ use tracing::debug;
 pub struct QueuePointsMessage {
     pub id: UserId,
     pub amount: u32,
+}
+
+impl QueuePointsMessage {
+    pub fn to_add_points_msg(&self) -> AddPointsMessage {
+        AddPointsMessage {
+            id: self.id,
+            amount: self.amount,
+        }
+    }
 }
 
 impl Handler<QueuePointsMessage> for PacketDispatcher {

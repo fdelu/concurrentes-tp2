@@ -1,4 +1,3 @@
-use crate::dist_mutex::packets::OkPacket;
 use crate::dist_mutex::{DistMutex, ServerId};
 use actix::prelude::*;
 use std::collections::HashSet;
@@ -7,17 +6,8 @@ use tracing::{debug, info};
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct OkMessage {
-    from: ServerId,
-    connected_servers: HashSet<ServerId>,
-}
-
-impl OkMessage {
-    pub fn new(from: ServerId, connected_servers: HashSet<ServerId>, _: OkPacket) -> Self {
-        Self {
-            from,
-            connected_servers,
-        }
-    }
+    pub from: ServerId,
+    pub connected_servers: HashSet<ServerId>,
 }
 
 impl<P: Actor> Handler<OkMessage> for DistMutex<P> {

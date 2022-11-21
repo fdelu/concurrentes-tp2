@@ -3,10 +3,12 @@ use crate::dist_mutex::messages::ok::OkMessage;
 use crate::dist_mutex::messages::public::acquire::AcquireMessage;
 use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::messages::request::RequestMessage;
-use crate::dist_mutex::packets::{ResourceId, Timestamp};
+use crate::dist_mutex::packets::{MutexPacket, ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
+use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::packet::Packet;
 use actix::prelude::*;
 use common::error::FlattenResult;
 use common::AHandler;
@@ -105,6 +107,13 @@ impl<P: Actor> DistMutex<P> {
         self.ack_received.clear();
         self.ok_received.clear();
         self.all_oks_received_channel = None;
+    }
+}
+
+impl<P: AHandler<SendMessage>> DistMutex<P> {
+    fn do_send(&self, to: ServerId, packet: MutexPacket) {
+        let packet = Packet::Mutex(packet);
+        self.dispatcher.do_send(SendMessage { to, packet });
     }
 }
 

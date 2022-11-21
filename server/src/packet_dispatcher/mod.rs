@@ -23,15 +23,8 @@ use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::messages::try_add_points::TryAddPointsMessage;
-use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
-use crate::two_phase_commit::messages::commit::CommitMessage;
-use crate::two_phase_commit::messages::forward_database::ForwardDatabaseMessage;
-use crate::two_phase_commit::messages::prepare::PrepareMessage;
-use crate::two_phase_commit::messages::rollback::RollbackMessage;
-use crate::two_phase_commit::messages::update_database::UpdateDatabaseMessage;
-use crate::two_phase_commit::messages::vote_no::VoteNoMessage;
-use crate::two_phase_commit::messages::vote_yes::VoteYesMessage;
-use crate::two_phase_commit::packets::TwoPhaseCommitPacket;
+use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket};
+use crate::two_phase_commit::packets::TPCommitPacket;
 use crate::two_phase_commit::{make_initial_database, TwoPhaseCommit};
 
 pub mod messages;
@@ -170,92 +163,44 @@ impl PacketDispatcher {
                 debug!("Received request from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, request.id);
                 let message = RequestMessage::new(from, request);
-
-                mutex.try_send(message).unwrap();
+                mutex.do_send(message);
             }
             MutexPacket::Ack(ack) => {
+                debug!("Received ack from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, ack.id);
-                let message = AckMessage::new(from, ack);
-                mutex.try_send(message).unwrap();
+                mutex.do_send(AckMessage { from });
             }
             MutexPacket::Ok(ok) => {
+                debug!("Received ok from {}", from);
                 let connected_servers = self.get_connected_servers();
                 let mutex = self.get_or_create_mutex(ctx, ok.id);
-
-                let message = OkMessage::new(from, connected_servers, ok);
-                mutex.try_send(message).unwrap();
+                mutex.do_send(OkMessage {
+                    from,
+                    connected_servers,
+                });
             }
-        }
+        };
     }
 
-    fn handle_commit(
-        &mut self,
-        from: ServerId,
-        packet: TwoPhaseCommitPacket,
-        _ctx: &mut Context<Self>,
-    ) {
+    fn handle_commit(&mut self, from: ServerId, packet: TPCommitPacket, _ctx: &mut Context<Self>) {
         match packet {
-            TwoPhaseCommitPacket::Prepare(packet) => {
-                let message = PrepareMessage {
-                    from,
-                    id: packet.id,
-                    transaction: packet.transaction,
-                };
-                self.two_phase_commit.try_send(message).unwrap();
+            TPCommitPacket::Prepare(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
             }
-            TwoPhaseCommitPacket::Commit(packet) => {
-                let message = CommitMessage {
-                    id: packet.id,
-                    from,
-                };
-                self.two_phase_commit.try_send(message).unwrap();
+            TPCommitPacket::Commit(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
             }
-            TwoPhaseCommitPacket::Rollback(packet) => {
-                let message = RollbackMessage { id: packet.id };
-                self.two_phase_commit.try_send(message).unwrap();
+            TPCommitPacket::Rollback(packet) => {
+                self.two_phase_commit.do_send(packet.to_message());
             }
-            TwoPhaseCommitPacket::VoteYes(packet) => {
-                let message = VoteYesMessage {
-                    id: packet.id,
-                    from,
-                    connected_servers: self.get_connected_servers(),
-                };
-                self.two_phase_commit.try_send(message).unwrap();
+            TPCommitPacket::VoteYes(packet) => {
+                self.two_phase_commit
+                    .do_send(packet.to_message(from, self.get_connected_servers()));
             }
-            TwoPhaseCommitPacket::VoteNo(packet) => {
-                let message = VoteNoMessage {
-                    id: packet.id,
-                    from,
-                };
-                self.two_phase_commit.try_send(message).unwrap();
+            TPCommitPacket::VoteNo(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
             }
         }
-    }
-
-    fn handle_sync_request(
-        &mut self,
-        from: ServerId,
-        _packet: SyncRequestPacket,
-        _ctx: &mut Context<Self>,
-    ) {
-        self.two_phase_commit
-            .try_send(ForwardDatabaseMessage { to: from })
-            .unwrap();
-    }
-
-    fn handle_sync_response(
-        &mut self,
-        _from: ServerId,
-        packet: SyncResponsePacket,
-        _ctx: &mut Context<Self>,
-    ) {
-        self.two_phase_commit
-            .try_send(UpdateDatabaseMessage {
-                snapshot_from: packet.snapshot_from,
-                database: packet.database,
-                logs: packet.logs,
-            })
-            .unwrap();
     }
 
     fn get_or_create_mutex(
@@ -264,7 +209,7 @@ impl PacketDispatcher {
         id: ResourceId,
     ) -> &mut Addr<DistMutex<PacketDispatcher>> {
         let mutex = self.mutexes.entry(id).or_insert_with(|| {
-            info!("Creating mutex for {}", id);
+            info!("Creating mutex for Resource {}", id);
             DistMutex::new(self.server_id, id, ctx.address()).start()
         });
         mutex

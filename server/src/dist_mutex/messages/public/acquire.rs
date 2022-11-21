@@ -1,5 +1,6 @@
 use actix::fut::LocalBoxActorFuture;
 use actix::prelude::*;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time;
 
@@ -49,53 +50,30 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessag
         self.lock_timestamp = Some(timestamp);
         self.queue.push((timestamp, self.server_id));
 
-        let (tx, rx) = oneshot::channel();
-        self.all_oks_received_channel = Some(tx);
-        let id = self.id;
-
-        let future = async move {
-            debug!("[Mutex {}] Waiting for all oks", id);
-            if time::timeout(TIME_UNTIL_DISCONNECT_POLITIC, rx)
-                .await
-                .is_err()
-            {
-                debug!(
-                    "[Mutex {}] Timeout while waiting for oks, maybe some server is down",
-                    id
-                );
-                Err(MutexError::Timeout)
-            } else {
-                debug!("[Mutex {}] All oks received", id);
-                Ok(())
-            }
-        }
-        .into_actor(self);
-
-        future
+        self.wait_for_oks(TIME_UNTIL_DISCONNECT_POLITIC)
             .then(|r, me, _| {
                 match r {
                     Ok(()) => {
                         // Lock acquired
                         debug!("[Mutex {}] I have the lock", me.id);
-                        me.ok_future()
+                        me.box_fut(Ok(()))
                     }
                     Err(MutexError::Timeout | MutexError::Disconnected) => {
                         if me.ack_received.is_empty() {
-                            // We are disconnected
-                            // TODO: Handle this
+                            // We are disconnected from the network
                             debug!("[Mutex {}] We are disconnected", me.id);
                             me.dispatcher.do_send(DieMessage);
-                            me.err_disconnected_future()
+                            me.box_fut(Err(MutexError::Disconnected))
                         } else if me.ok_received == me.ack_received {
                             // There are servers that are disconnected
                             // but we have the lock
                             debug!("[Mutex {}] I have the lock", me.id);
                             me.send_prune();
-                            me.ok_future()
+                            me.box_fut(Ok(()))
                         } else {
                             // There is a server that has the lock
                             debug!("[Mutex {}] There is a server that has the lock", me.id);
-                            me.wait_lock()
+                            me.wait_for_oks(TIME_UNTIL_ERROR)
                         }
                     }
                     Err(Mailbox(_)) => {
@@ -107,32 +85,29 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessag
     }
 }
 
+impl<P: Actor> DistMutex<P> {
+    fn box_fut<T>(&mut self, inner: T) -> LocalBoxActorFuture<Self, T>
+    where
+        T: 'static,
+    {
+        async move { inner }.into_actor(self).boxed_local()
+    }
+}
+
 impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
-    fn ok_future(&mut self) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
-        async { Ok(()) }.into_actor(self).boxed_local()
-    }
-
-    fn err_disconnected_future(
+    fn wait_for_oks(
         &mut self,
+        dur: Duration,
     ) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
-        async { Err(MutexError::Disconnected) }
-            .into_actor(self)
-            .boxed_local()
-    }
-
-    fn wait_lock(&mut self) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
-        debug!(
-            "{} Waiting {} ms for lock",
-            self,
-            TIME_UNTIL_ERROR.as_millis()
-        );
+        debug!("{} Waiting {} ms for lock", self, dur.as_millis());
         let (tx, rx) = oneshot::channel();
         self.all_oks_received_channel = Some(tx);
         async move {
-            if time::timeout(TIME_UNTIL_ERROR, rx).await.is_err() {
-                debug!("Timeout while waiting for oks, but seems that some server has the lock");
+            if time::timeout(dur, rx).await.is_err() {
+                debug!("Timeout while waiting for oks");
                 Err(MutexError::Timeout)
             } else {
+                debug!("All oks received");
                 Ok(())
             }
         }

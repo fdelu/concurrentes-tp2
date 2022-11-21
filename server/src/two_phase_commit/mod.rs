@@ -19,7 +19,7 @@ use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::remove_transaction::RemoveTransactionMessage;
 use crate::two_phase_commit::packets::{
-    CommitPacket, PreparePacket, RollbackPacket, Transaction, TwoPhaseCommitPacket, VoteNoPacket,
+    CommitPacket, PreparePacket, RollbackPacket, TPCommitPacket, Transaction, VoteNoPacket,
     VoteYesPacket,
 };
 use crate::ServerId;
@@ -199,14 +199,14 @@ impl<P: AHandler<SendMessage>> TwoPhaseCommit<P> {
     fn send_vote_yes(&mut self, to: ServerId, id: TransactionId) {
         self.dispatcher.do_send(SendMessage {
             to,
-            packet: Packet::Commit(TwoPhaseCommitPacket::VoteYes(VoteYesPacket { id })),
+            packet: Packet::Commit(TPCommitPacket::VoteYes(VoteYesPacket { id })),
         });
     }
 
     fn send_vote_no(&mut self, to: ServerId, id: TransactionId) {
         self.dispatcher.do_send(SendMessage {
             to,
-            packet: Packet::Commit(TwoPhaseCommitPacket::VoteNo(VoteNoPacket { id })),
+            packet: Packet::Commit(TPCommitPacket::VoteNo(VoteNoPacket { id })),
         });
     }
 }
@@ -214,19 +214,19 @@ impl<P: AHandler<SendMessage>> TwoPhaseCommit<P> {
 impl<P: AHandler<BroadcastMessage>> TwoPhaseCommit<P> {
     fn broadcast_rollback(&mut self, id: TransactionId) {
         self.dispatcher.do_send(BroadcastMessage {
-            packet: Packet::Commit(TwoPhaseCommitPacket::Rollback(RollbackPacket { id })),
+            packet: Packet::Commit(TPCommitPacket::Rollback(RollbackPacket { id })),
         });
     }
 
     fn broadcast_commit(&mut self, id: TransactionId) {
         self.dispatcher.do_send(BroadcastMessage {
-            packet: Packet::Commit(TwoPhaseCommitPacket::Commit(CommitPacket { id })),
+            packet: Packet::Commit(TPCommitPacket::Commit(CommitPacket { id })),
         });
     }
 
     fn broadcast_prepare(&mut self, packet: PreparePacket) {
         self.dispatcher.do_send(BroadcastMessage {
-            packet: Packet::Commit(TwoPhaseCommitPacket::Prepare(packet)),
+            packet: Packet::Commit(TPCommitPacket::Prepare(packet)),
         });
     }
 }

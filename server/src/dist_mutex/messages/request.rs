@@ -11,8 +11,8 @@ use crate::packet_dispatcher::packet::Packet;
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct RequestMessage {
-    from: ServerId,
-    timestamp: Timestamp,
+    pub from: ServerId,
+    pub timestamp: Timestamp,
 }
 
 impl RequestMessage {
