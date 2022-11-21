@@ -5,17 +5,12 @@ use actix::{
 };
 use tracing::info;
 
+use crate::packet_dispatcher::messages::{BlockPointsMessage, DiscountMessage, QueuePointsMessage};
 use crate::packet_dispatcher::TransactionId;
 use crate::{
     config::Config,
     network::{ConnectionHandler, Listen, SendPacket},
-    packet_dispatcher::{
-        messages::public::{
-            block_points::BlockPointsMessage, discount::DiscountMessage,
-            queue_points::QueuePointsMessage,
-        },
-        PacketDispatcher,
-    },
+    packet_dispatcher::PacketDispatcher,
     ServerId,
 };
 use common::{

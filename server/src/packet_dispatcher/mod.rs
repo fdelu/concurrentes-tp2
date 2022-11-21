@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use common::packet::{CoffeeMakerId, TxId};
-use common::AHandler;
 use tracing::{debug, info, trace};
 
 use crate::config::Config;
@@ -16,18 +15,17 @@ use crate::dist_mutex::messages::RequestMessage;
 use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
-use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::prune::PruneMessage;
-use crate::packet_dispatcher::messages::public::die::DieMessage;
-use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::packet_dispatcher::messages::try_add_points::TryAddPointsMessage;
+use crate::network::{ConnectionHandler, SendPacket};
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket};
 use crate::two_phase_commit::packets::TPCommitPacket;
 use crate::two_phase_commit::{make_initial_database, TwoPhaseCommit};
+use messages::DieMessage;
+use messages::QueuePointsMessage;
+use messages::SendMessage;
+use messages::TryAddPointsMessage;
 
 pub mod messages;
+pub mod messages_impls;
 pub mod packet;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -51,17 +49,6 @@ impl Display for TransactionId {
         }
     }
 }
-
-pub trait PacketDispatcherTrait:
-    AHandler<ReceivedPacket<Packet>>
-    + AHandler<BroadcastMessage>
-    + AHandler<PruneMessage>
-    + AHandler<SendMessage>
-    + AHandler<DieMessage>
-{
-}
-
-impl PacketDispatcherTrait for PacketDispatcher {}
 
 pub struct PacketDispatcher {
     server_id: ServerId,

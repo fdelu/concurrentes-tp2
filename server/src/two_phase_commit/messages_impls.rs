@@ -1,6 +1,6 @@
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::public::die::DieMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::messages::BroadcastMessage;
+use crate::packet_dispatcher::messages::DieMessage;
+use crate::packet_dispatcher::messages::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncResponsePacket};
 use crate::two_phase_commit::messages::{
     CommitCompleteMessage, CommitMessage, CommitRequestMessage, ForwardDatabaseMessage,

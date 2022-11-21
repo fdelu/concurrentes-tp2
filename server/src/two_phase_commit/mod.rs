@@ -13,8 +13,8 @@ use common::AHandler;
 use tracing::{debug, info, trace, warn};
 
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::messages::BroadcastMessage;
+use crate::packet_dispatcher::messages::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::packets::{

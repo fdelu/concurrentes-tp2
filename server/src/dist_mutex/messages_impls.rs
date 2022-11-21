@@ -6,10 +6,10 @@ use crate::dist_mutex::MutexError::Mailbox;
 use crate::dist_mutex::{
     do_send, DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
 };
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::prune::PruneMessage;
-use crate::packet_dispatcher::messages::public::die::DieMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::messages::BroadcastMessage;
+use crate::packet_dispatcher::messages::DieMessage;
+use crate::packet_dispatcher::messages::PruneMessage;
+use crate::packet_dispatcher::messages::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::ServerId;
 use actix::prelude::*;
@@ -202,9 +202,9 @@ mod tests {
     use crate::dist_mutex::messages::OkMessage;
     use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
-    use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-    use crate::packet_dispatcher::messages::prune::PruneMessage;
-    use crate::packet_dispatcher::messages::public::die::DieMessage;
+    use crate::packet_dispatcher::messages::BroadcastMessage;
+    use crate::packet_dispatcher::messages::DieMessage;
+    use crate::packet_dispatcher::messages::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
     use common::socket::SocketError;
 
