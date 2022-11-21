@@ -160,7 +160,7 @@ mod test {
 
     /// Estructura para corroborar que los mensajes recibidos
     /// fueron los correctos.
-    struct RequieredMessages {
+    struct RequiredMessages {
         prepare_expected: u32,
         commit_expected: u32,
         add_points_expected: u32,
@@ -169,10 +169,10 @@ mod test {
         add_points_real: u32,
     }
 
-    impl RequieredMessages {
+    impl RequiredMessages {
         /// Inicializacion, recibe los valores que esperar.
-        fn new(prepare: u32, commit: u32, add_points: u32) -> RequieredMessages {
-            RequieredMessages {
+        fn new(prepare: u32, commit: u32, add_points: u32) -> RequiredMessages {
+            RequiredMessages {
                 prepare_expected: prepare,
                 commit_expected: commit,
                 add_points_expected: add_points,
@@ -210,7 +210,7 @@ mod test {
         id: u32,
         cost: u32,
         orders: &mut Vec<u32>,
-        requiered_messages: &mut RequieredMessages,
+        required_messages: &mut RequiredMessages,
     ) {
         println!("reading");
         match rx.recv().await.unwrap() {
@@ -223,7 +223,7 @@ mod test {
                 let packet = ServerPacket::Ready(tx_id);
                 socket.do_send(SocketSend { data: packet });
                 orders.push(tx_id);
-                requiered_messages.add_prepare();
+                required_messages.add_prepare();
             }
             ClientPacket::CommitOrder(tx_id) => {
                 let index = orders
@@ -233,7 +233,7 @@ mod test {
                 orders.remove(index);
 
                 println!("recieved commit");
-                requiered_messages.add_commit();
+                required_messages.add_commit();
             }
             ClientPacket::AddPoints(user_id, amount, tx_id) => {
                 println!("recieved recharge");
@@ -242,7 +242,7 @@ mod test {
                     assert_eq!(amount, cost);
                 }
                 assert!(!orders.contains(&tx_id));
-                requiered_messages.add_add_points();
+                required_messages.add_add_points();
             }
         };
         println!("done")
@@ -287,7 +287,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(1, 1, 0);
+            let mut required_messages = RequiredMessages::new(1, 1, 0);
             for _ in 0..2 {
                 order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
                     .await;
@@ -330,7 +330,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(10, 10, 0);
+            let mut required_messages = RequiredMessages::new(10, 10, 0);
             for i in 0..20 {
                 println!("iteration: {}", i);
                 order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
@@ -377,7 +377,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(0, 0, 1);
+            let mut required_messages = RequiredMessages::new(0, 0, 1);
             for _ in 0..1 {
                 order_ready_server(
                     &mut rx,
@@ -427,7 +427,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(3, 3, 2);
+            let mut required_messages = RequiredMessages::new(3, 3, 2);
             for _ in 0..8 {
                 order_ready_server(&mut rx, &socket, 0, 7, &mut orders, &mut required_messages)
                     .await;
@@ -470,7 +470,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(1, 0, 0);
+            let mut required_messages = RequiredMessages::new(1, 0, 0);
             for _ in 0..1 {
                 order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
                     .await;
@@ -513,7 +513,7 @@ mod test {
             .start();
 
             let mut orders: Vec<u32> = Vec::new();
-            let mut required_messages = RequieredMessages::new(10, 0, 0);
+            let mut required_messages = RequiredMessages::new(10, 0, 0);
             for i in 0..10 {
                 println!("iteration: {}", i);
                 order_ready_server(&mut rx, &socket, 3, 5, &mut orders, &mut required_messages)
