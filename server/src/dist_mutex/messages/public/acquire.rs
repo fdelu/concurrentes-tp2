@@ -127,7 +127,6 @@ mod tests {
 
     use crate::dist_mutex::messages::ack::AckMessage;
     use crate::dist_mutex::messages::ok::OkMessage;
-    use crate::dist_mutex::packets::{AckPacket, OkPacket};
     use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
@@ -219,13 +218,9 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
-        let resource_id = 1;
-        let packet = AckPacket { id: resource_id };
-
-        let ack = AckMessage::new(another_server_id, packet);
-        let ok_packet = OkPacket { id: resource_id };
+        let ack = AckMessage{from: another_server_id};
         let connected_servers = HashSet::from([another_server_id]);
-        let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
+        let ok = OkMessage{from: another_server_id, connected_servers};
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -239,9 +234,7 @@ mod tests {
     async fn test_acquire_with_ack_but_no_ok_returns_timeout() {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
-        let resource_id = 1;
-        let packet = AckPacket { id: resource_id };
-        let ack = AckMessage::new(another_server_id, packet);
+        let ack = AckMessage{from: another_server_id};
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -257,10 +250,8 @@ mod tests {
         let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let resource_id = 1;
-
-        let ack = AckMessage::new(server_id_1, AckPacket { id: resource_id });
-        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket { id: resource_id });
+        let ack = AckMessage{from: server_id_1};
+        let ok = OkMessage{from: server_id_1, connected_servers};
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -276,10 +267,8 @@ mod tests {
         let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let resource_id = 1;
-
-        let ack = AckMessage::new(server_id_1, AckPacket { id: resource_id });
-        let ok = OkMessage::new(server_id_1, connected_servers, OkPacket { id: resource_id });
+        let ack = AckMessage{from: server_id_1};
+        let ok = OkMessage{from: server_id_1, connected_servers};
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
@@ -297,12 +286,9 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
-        let resource_id = 1;
-        let packet = AckPacket { id: resource_id };
-        let ack = AckMessage::new(another_server_id, packet);
-        let ok_packet = OkPacket { id: resource_id };
+        let ack = AckMessage{from: another_server_id};
         let connected_servers = HashSet::from([another_server_id]);
-        let ok = OkMessage::new(another_server_id, connected_servers, ok_packet);
+        let ok = OkMessage{from: another_server_id, connected_servers};
 
         let result = mutex.send(AcquireMessage::new());
         mutex.do_send(ack);
