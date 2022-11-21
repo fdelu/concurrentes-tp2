@@ -17,7 +17,7 @@ use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::TransactionId;
-use crate::two_phase_commit::messages::remove_transaction::RemoveTransactionMessage;
+use messages::RemoveTransactionMessage;
 use crate::two_phase_commit::packets::{
     CommitPacket, PreparePacket, RollbackPacket, TPCommitPacket, Transaction, VoteNoPacket,
     VoteYesPacket,
@@ -26,6 +26,7 @@ use crate::ServerId;
 
 pub mod messages;
 pub mod packets;
+pub mod messages_impls;
 
 const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
 

@@ -1,8 +1,7 @@
-use crate::two_phase_commit::messages::commit::CommitMessage;
-use crate::two_phase_commit::messages::prepare::PrepareMessage;
-use crate::two_phase_commit::messages::rollback::RollbackMessage;
-use crate::two_phase_commit::messages::vote_no::VoteNoMessage;
-use crate::two_phase_commit::messages::vote_yes::VoteYesMessage;
+use crate::two_phase_commit::messages::CommitMessage;
+use crate::two_phase_commit::messages::PrepareMessage;
+use crate::two_phase_commit::messages::{RollbackMessage, VoteYesMessage};
+use crate::two_phase_commit::messages::VoteNoMessage;
 use crate::two_phase_commit::TransactionId;
 use crate::ServerId;
 use common::packet::UserId;

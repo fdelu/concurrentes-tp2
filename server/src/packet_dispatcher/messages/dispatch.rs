@@ -5,7 +5,7 @@ use crate::dist_mutex::packets::get_timestamp;
 use crate::network::ReceivedPacket;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::PacketDispatcher;
-use crate::two_phase_commit::messages::forward_database::ForwardDatabaseMessage;
+use crate::two_phase_commit::messages::ForwardDatabaseMessage;
 
 impl Handler<ReceivedPacket<Packet>> for PacketDispatcher {
     type Result = ();
