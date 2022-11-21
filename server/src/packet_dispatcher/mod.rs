@@ -19,8 +19,8 @@ use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
-use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
+use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::messages::try_add_points::TryAddPointsMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
@@ -97,9 +97,7 @@ impl Supervised for PacketDispatcher {
 
 impl PacketDispatcher {
     pub fn new(cfg: &Config) -> Addr<Self> {
-        Self::create(|ctx| {
-            Self::new_with_context(cfg, ctx)
-        })
+        Self::create(|ctx| Self::new_with_context(cfg, ctx))
     }
 
     pub fn new_with_context(cfg: &Config, ctx: &mut Context<Self>) -> Self {
@@ -114,37 +112,39 @@ impl PacketDispatcher {
         trace!("Initial servers: {:?}", servers_last_seen);
 
         let socket = ConnectionHandler::new(
-                ctx.address().recipient(),
-                my_addr,
-                true,
-                Some(CONNECTION_TIMEOUT),
-            )
-            .start();
-            let two_phase_commit = TwoPhaseCommit::new(ctx.address());
-            let mutexes = make_initial_database()
-                .iter()
-                .map(|(&client_id, _)| {
-                    let my_id_c = my_id;
-                    let client_id_c = client_id;
-                    let dispatcher_addr = ctx.address();
-                    let mutex = Supervisor::start(move |_| {DistMutex::new(my_id_c, client_id_c, dispatcher_addr)});
-                    (client_id, mutex)
-                })
-                .collect();
+            ctx.address().recipient(),
+            my_addr,
+            true,
+            Some(CONNECTION_TIMEOUT),
+        )
+        .start();
+        let two_phase_commit = TwoPhaseCommit::new(ctx.address());
+        let mutexes = make_initial_database()
+            .iter()
+            .map(|(&client_id, _)| {
+                let my_id_c = my_id;
+                let client_id_c = client_id;
+                let dispatcher_addr = ctx.address();
+                let mutex = Supervisor::start(move |_| {
+                    DistMutex::new(my_id_c, client_id_c, dispatcher_addr)
+                });
+                (client_id, mutex)
+            })
+            .collect();
 
-            let mut ret = Self {
-                server_id: my_id,
-                mutexes,
-                socket,
-                servers_last_seen,
-                two_phase_commit,
-                points_queue: Vec::new(),
-                points_ids_counter: 0,
-                config: cfg.clone(),
-            };
-            ret.initialize_add_points_loop(ctx);
-            ret.send_sync_request(ctx);
-            ret
+        let mut ret = Self {
+            server_id: my_id,
+            mutexes,
+            socket,
+            servers_last_seen,
+            two_phase_commit,
+            points_queue: Vec::new(),
+            points_ids_counter: 0,
+            config: cfg.clone(),
+        };
+        ret.initialize_add_points_loop(ctx);
+        ret.send_sync_request(ctx);
+        ret
     }
 
     fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {

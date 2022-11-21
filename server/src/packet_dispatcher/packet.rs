@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use serde_with::serde_as;
 use common::packet::UserId;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use std::collections::HashMap;
 
 use crate::dist_mutex::packets::{MutexPacket, Timestamp};
 use crate::packet_dispatcher::TransactionId;

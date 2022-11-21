@@ -1,6 +1,6 @@
-use actix::prelude::*;
-use tracing::{debug, trace};
 use crate::PacketDispatcher;
+use actix::prelude::*;
+use tracing::{debug};
 
 #[derive(Message)]
 #[rtype(result = "()")]

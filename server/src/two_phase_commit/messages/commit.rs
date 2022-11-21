@@ -1,8 +1,8 @@
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::two_phase_commit::{CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
 use crate::ServerId;
 use actix::prelude::*;
-use crate::packet_dispatcher::messages::public::die::DieMessage;
 
 use common::AHandler;
 use tracing::debug;

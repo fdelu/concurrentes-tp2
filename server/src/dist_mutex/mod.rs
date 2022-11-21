@@ -6,13 +6,13 @@ use crate::dist_mutex::messages::request::RequestMessage;
 use crate::dist_mutex::packets::{ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use actix::prelude::*;
 use common::error::FlattenResult;
 use common::AHandler;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use crate::packet_dispatcher::messages::public::die::DieMessage;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -109,7 +109,6 @@ impl<P: Actor> DistMutex<P> {
 }
 
 impl<P: AHandler<PruneMessage>> DistMutex<P> {
-
     fn send_prune(&mut self) {
         let message = PruneMessage {
             older_than: self.lock_timestamp.unwrap(),

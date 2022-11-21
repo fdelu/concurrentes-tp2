@@ -32,8 +32,8 @@ impl Default for AcquireMessage {
     }
 }
 
-impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessage>> Handler<AcquireMessage>
-    for DistMutex<P>
+impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessage>>
+    Handler<AcquireMessage> for DistMutex<P>
 {
     type Result = ResponseActFuture<Self, MutexResult<()>>;
 

@@ -32,7 +32,7 @@ async fn main() {
     let _g = init_logger(&cfg.logs);
 
     let cfg_c = cfg.clone();
-    let dispatcher = Supervisor::start(move |ctx| {PacketDispatcher::new_with_context(&cfg_c, ctx)});
+    let dispatcher = Supervisor::start(move |ctx| PacketDispatcher::new_with_context(&cfg_c, ctx));
     let clients = ClientConnections::new(&cfg, dispatcher);
 
     (clients.send(Listen {}).await.flatten() as Result<(), CoffeeError>)
