@@ -17,6 +17,7 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
 
         let addr = ctx.address();
         let points_list = self.points_queue.clone();
+        self.points_queue = vec![];
 
         async move {
             let mut not_added_points = vec![];
@@ -41,7 +42,7 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
         }
         .into_actor(self)
         .then(move |not_added_points, me, ctx| {
-            me.points_queue = not_added_points;
+            me.points_queue.extend(not_added_points);
             ctx.notify_later(TryAddPointsMessage, ADD_POINTS_ATTEMPT_INTERVAL);
             async {}.into_actor(me)
         })

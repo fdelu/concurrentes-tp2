@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use serde_with::serde_as;
 use common::packet::UserId;
 use serde::{Deserialize, Serialize};
 
@@ -13,10 +13,12 @@ pub struct SyncRequestPacket {
     pub timestamp: Timestamp,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncResponsePacket {
     pub snapshot_from: Timestamp,
     pub database: HashMap<UserId, UserData>,
+    #[serde_as(as = "Vec<(_, _)>")]
     pub logs: HashMap<TransactionId, (TransactionState, Transaction)>,
 }
 
