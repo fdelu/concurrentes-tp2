@@ -1,4 +1,4 @@
-use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::dist_mutex::messages::DoWithLock;
 use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;

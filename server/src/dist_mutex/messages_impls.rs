@@ -1,35 +1,84 @@
-use actix::fut::LocalBoxActorFuture;
 use actix::prelude::*;
-use std::time::Duration;
-use tokio::sync::oneshot;
-use tokio::time;
-
 use common::AHandler;
-use tracing::debug;
-
-use crate::dist_mutex::packets::{MutexPacket, RequestPacket};
+use tracing::{debug, info};
+use std::future::Future;
+use crate::dist_mutex::{DistMutex, do_send, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR};
+use crate::dist_mutex::messages::{AckMessage, AcquireMessage, DoWithLock, OkMessage, ReleaseMessage, RequestMessage};
 use crate::dist_mutex::MutexError::Mailbox;
-use crate::dist_mutex::{
-    DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
-};
+use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
+use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
+use crate::ServerId;
 
-#[derive(Message)]
-#[rtype(result = "MutexResult<()>")]
-pub struct AcquireMessage;
+impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
+    type Result = ();
 
-impl AcquireMessage {
-    pub fn new() -> Self {
-        Self
+    fn handle(&mut self, _: ReleaseMessage, _: &mut Self::Context) -> Self::Result {
+        let id = self.id;
+        let ok = OkPacket { id };
+
+        for (_, server) in &self.queue {
+            if *server != self.server_id {
+                do_send(&self.dispatcher, *server, MutexPacket::Ok(ok));
+            }
+        }
+        self.clean_state();
     }
 }
 
-impl Default for AcquireMessage {
-    fn default() -> Self {
-        Self::new()
+impl<P: Actor> Handler<AckMessage> for DistMutex<P> {
+    type Result = ();
+
+    fn handle(&mut self, msg: AckMessage, _ctx: &mut Self::Context) {
+        self.ack_received.insert(msg.from);
+    }
+}
+
+impl<P: Actor> Handler<OkMessage> for DistMutex<P> {
+    type Result = ();
+
+    fn handle(&mut self, msg: OkMessage, _ctx: &mut Self::Context) {
+        debug!("{} Received ok from {}", self, msg.from);
+        info!("Connected servers: {:?}", msg.connected_servers);
+
+        self.ok_received.insert(msg.from);
+
+        if self.ok_received.is_superset(&msg.connected_servers) {
+            debug!("{} All ok received", self);
+            if let Some(ch) = self.all_oks_received_channel.take() {
+                ch.send(()).unwrap();
+            }
+        }
+    }
+}
+
+impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
+    type Result = ();
+
+    fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {
+        do_send(&self.dispatcher, msg.from, MutexPacket::Ack(AckPacket { id: self.id }));
+
+        if let Some(my_timestamp) = &self.lock_timestamp {
+            if my_timestamp > &msg.timestamp {
+                debug!("{} {:?} has priority over me, sending ok", self, msg.from);
+                do_send(&self.dispatcher, msg.from, MutexPacket::Ok(OkPacket { id: self.id }));
+            } else {
+                debug!(
+                    "{} I have priority over {} (my timestamp {} - other timestamp: {})",
+                    self, msg.from, my_timestamp, msg.timestamp
+                );
+                self.queue.push((msg.timestamp, msg.from));
+            }
+        } else {
+            debug!(
+                "{} I am not waiting for lock, sending ok to {}",
+                self, msg.from
+            );
+            do_send(&self.dispatcher, msg.from, MutexPacket::Ok(OkPacket { id: self.id }));
+        }
     }
 }
 
@@ -48,7 +97,6 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessag
         });
 
         self.lock_timestamp = Some(timestamp);
-        self.queue.push((timestamp, self.server_id));
 
         self.wait_for_oks(TIME_UNTIL_DISCONNECT_POLITIC)
             .then(|r, me, _| {
@@ -85,34 +133,42 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessag
     }
 }
 
-impl<P: Actor> DistMutex<P> {
-    fn box_fut<T>(&mut self, inner: T) -> LocalBoxActorFuture<Self, T>
-    where
-        T: 'static,
-    {
-        async move { inner }.into_actor(self).boxed_local()
-    }
-}
+impl<F, P, R, Fut> Handler<DoWithLock<F, R, Fut>> for DistMutex<P>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    P: AHandler<BroadcastMessage>
+        + AHandler<SendMessage>
+        + AHandler<PruneMessage>
+        + AHandler<DieMessage>,
+    Fut: Future<Output = R>,
+    R: Send + 'static,
+{
+    type Result = ResponseActFuture<Self, MutexResult<R>>;
 
-impl<P: AHandler<BroadcastMessage>> DistMutex<P> {
-    fn wait_for_oks(
-        &mut self,
-        dur: Duration,
-    ) -> LocalBoxActorFuture<DistMutex<P>, Result<(), MutexError>> {
-        debug!("{} Waiting {} ms for lock", self, dur.as_millis());
-        let (tx, rx) = oneshot::channel();
-        self.all_oks_received_channel = Some(tx);
+    fn handle(&mut self, msg: DoWithLock<F, R, Fut>, ctx: &mut Self::Context) -> Self::Result {
+        let addr = ctx.address();
+
         async move {
-            if time::timeout(dur, rx).await.is_err() {
-                debug!("Timeout while waiting for oks");
-                Err(MutexError::Timeout)
-            } else {
-                debug!("All oks received");
-                Ok(())
-            }
+            if addr.send(AcquireMessage {}).await.is_err() {
+                return Err(MutexError::Timeout);
+            };
+            let r = (msg.action)().await;
+            if addr.send(ReleaseMessage {}).await.is_err() {
+                return Err(MutexError::Timeout);
+            };
+            Ok(r)
         }
         .into_actor(self)
         .boxed_local()
+    }
+}
+
+impl RequestMessage {
+    pub fn new(from: ServerId, packet: RequestPacket) -> Self {
+        Self {
+            from,
+            timestamp: packet.timestamp,
+        }
     }
 }
 
@@ -125,15 +181,15 @@ mod tests {
 
     use actix::prelude::*;
 
-    use crate::dist_mutex::messages::ack::AckMessage;
-    use crate::dist_mutex::messages::ok::OkMessage;
+    use crate::dist_mutex::messages::AckMessage;
+    use crate::dist_mutex::messages::OkMessage;
     use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::messages::public::die::DieMessage;
     use crate::packet_dispatcher::packet::Packet;
-    use crate::AcquireMessage;
+    use crate::dist_mutex::messages::AcquireMessage;
     use common::socket::SocketError;
 
     struct TestDispatcher {
@@ -192,7 +248,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_sends_broadcast_to_dispatcher() {
         let (mutex, dispatcher, _) = create_mutex();
-        mutex.send(AcquireMessage::new()).await;
+        mutex.send(AcquireMessage {}).await;
 
         let broadcasts = dispatcher.lock().unwrap();
         assert_eq!(broadcasts.len(), 1);
@@ -207,7 +263,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_acquire_without_any_ack_received_returns_disconnected() {
         let (mutex, _, _) = create_mutex();
-        let result = mutex.send(AcquireMessage::new()).await.unwrap();
+        let result = mutex.send(AcquireMessage {}).await.unwrap();
 
         assert_eq!(result.unwrap_err(), MutexError::Disconnected);
         System::current().stop();
@@ -222,7 +278,7 @@ mod tests {
         let connected_servers = HashSet::from([another_server_id]);
         let ok = OkMessage{from: another_server_id, connected_servers};
 
-        let result = mutex.send(AcquireMessage::new());
+        let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
         mutex.do_send(ok);
 
@@ -236,7 +292,7 @@ mod tests {
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let ack = AckMessage{from: another_server_id};
 
-        let result = mutex.send(AcquireMessage::new());
+        let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
 
         assert_eq!(result.await.unwrap().unwrap_err(), MutexError::Timeout);
@@ -253,7 +309,7 @@ mod tests {
         let ack = AckMessage{from: server_id_1};
         let ok = OkMessage{from: server_id_1, connected_servers};
 
-        let result = mutex.send(AcquireMessage::new());
+        let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
         mutex.do_send(ok);
 
@@ -270,7 +326,7 @@ mod tests {
         let ack = AckMessage{from: server_id_1};
         let ok = OkMessage{from: server_id_1, connected_servers};
 
-        let result = mutex.send(AcquireMessage::new());
+        let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
         mutex.do_send(ok);
 
@@ -290,7 +346,7 @@ mod tests {
         let connected_servers = HashSet::from([another_server_id]);
         let ok = OkMessage{from: another_server_id, connected_servers};
 
-        let result = mutex.send(AcquireMessage::new());
+        let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
         mutex.do_send(ok);
 
