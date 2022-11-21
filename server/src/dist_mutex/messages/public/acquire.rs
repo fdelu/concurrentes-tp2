@@ -157,6 +157,7 @@ mod tests {
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
     use crate::packet_dispatcher::messages::prune::PruneMessage;
+    use crate::packet_dispatcher::messages::public::die::DieMessage;
     use crate::packet_dispatcher::packet::Packet;
     use crate::AcquireMessage;
     use common::socket::SocketError;
@@ -184,6 +185,14 @@ mod tests {
 
         fn handle(&mut self, msg: PruneMessage, _: &mut Self::Context) -> Self::Result {
             self.prunes.lock().unwrap().push(msg);
+        }
+    }
+
+    impl Handler<DieMessage> for TestDispatcher {
+        type Result = ();
+
+        fn handle(&mut self, _: DieMessage, ctx: &mut Self::Context) -> Self::Result {
+            ctx.stop();
         }
     }
 
