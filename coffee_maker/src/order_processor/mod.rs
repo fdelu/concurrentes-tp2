@@ -4,6 +4,7 @@ use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, Recipient, ResponseActFuture,
     System, WrapFuture,
 };
+use rand::Rng;
 use tracing::{error, info, warn};
 
 use crate::coffee_maker::{Coffee, MakeCoffee};
@@ -21,8 +22,13 @@ impl OrderProcessorTrait for OrderProcessor {}
 ///Actor para comunicacion entre la cafetera y su servidor local
 pub(crate) struct OrderProcessor {
     server_socket: Addr<Socket<ClientPacket, ServerPacket>>,
-    active_coffees: HashMap<TxId, (Coffee, Recipient<MakeCoffee>)>,
-    next_tx_id: TxId,
+    transactions: HashMap<TxId, TransactionInfo>,
+}
+
+/// Enum that holds the state of a transaction
+enum TransactionInfo {
+    PreparingCoffee(Coffee, Recipient<MakeCoffee>),
+    Completed,
 }
 
 impl Actor for OrderProcessor {
@@ -40,33 +46,40 @@ impl OrderProcessor {
                 Stream::New,
             )
             .start(),
-            active_coffees: HashMap::new(),
-            next_tx_id: 0,
+            transactions: HashMap::new(),
         })
     }
 
     /// Crea un identificador de transaccion unico dentro de esta cafetera.
     /// Tambien guarda ese identificador entre los identificadores activos.
-    fn add_tx_id(&mut self, coffee: Option<(Coffee, Recipient<MakeCoffee>)>) -> TxId {
-        let tx_id = self.next_tx_id;
-        self.next_tx_id = self.next_tx_id.wrapping_add(1);
-
-        if let Some(tuple) = coffee {
-            self.active_coffees.insert(tx_id, tuple);
+    fn add_tx_id(&mut self, info: TransactionInfo) -> TxId {
+        let mut rng = rand::thread_rng();
+        let mut tx_id = rng.gen();
+        while self.transactions.contains_key(&tx_id) {
+            tx_id = rng.gen();
         }
+
+        self.transactions.insert(tx_id, info);
         tx_id
     }
 
-    /// Saca un identificador de transaccion de los identificadores activos.
+    /// Saca un identificador de transacción de los identificadores activos.
+    /// Si el identificador corresponde a un café en preparación, lo devuelve junto
+    /// con el actor que lo prepara.
     fn remove_tx_id(&mut self, tx_id: TxId) -> Option<(Coffee, Recipient<MakeCoffee>)> {
-        let tuple = self.active_coffees.remove(&tx_id);
-        if tuple.is_none() {
-            warn!(
-                "Got message from the server for inactive transaction: {}",
+        let trx_info = self.transactions.remove(&tx_id);
+        match trx_info {
+            None => warn!(
+                "Got message from the server for unknown transaction: {}",
                 tx_id
-            );
+            ),
+            Some(TransactionInfo::Completed) => warn!(
+                "Got message from the server for already completed transaction: {}",
+                tx_id
+            ),
+            Some(TransactionInfo::PreparingCoffee(c, m)) => return Some((c, m)),
         }
-        tuple
+        None
     }
 
     /// Para cuando se recibio un mensaje ready del servidor.
@@ -85,6 +98,7 @@ impl OrderProcessor {
                 "Couldn't make coffee {}: Insufficient funds\nTransaction ID: {}",
                 coffee.name, tx_id
             );
+            self.transactions.insert(tx_id, TransactionInfo::Completed);
         }
     }
 
@@ -96,6 +110,7 @@ impl OrderProcessor {
                 "Couldn't make coffee {}: Server error ({})\nTransaction ID: {}",
                 coffee.name, error, tx_id
             );
+            self.transactions.insert(tx_id, TransactionInfo::Completed);
         }
     }
 }
@@ -107,7 +122,8 @@ impl Handler<PrepareOrder> for OrderProcessor {
     /// Le envia al servidor la orden.
     fn handle(&mut self, msg: PrepareOrder, _ctx: &mut Self::Context) -> Self::Result {
         let coffee = msg.coffee.clone();
-        let transaction_id = self.add_tx_id(Some((msg.coffee, msg.maker)));
+        let transaction_id =
+            self.add_tx_id(TransactionInfo::PreparingCoffee(msg.coffee, msg.maker));
         info!(
             "Assigned transaction id {} to coffee {}",
             transaction_id, coffee.name
@@ -137,14 +153,14 @@ impl Handler<CommitOrder> for OrderProcessor {
     /// Envia al servidor para conretar la orden.
     fn handle(&mut self, msg: CommitOrder, _ctx: &mut Self::Context) -> Self::Result {
         let server_socket = self.server_socket.clone();
-
+        self.transactions
+            .insert(msg.transaction_id, TransactionInfo::Completed);
         async move {
             let res = server_socket
                 .send(SocketSend {
                     data: ClientPacket::CommitOrder(msg.transaction_id),
                 })
                 .await;
-
             if let Err(e) = res.flatten() as Result<(), CoffeeError> {
                 error!("Error sending CommitOrder: {}", e);
             } else {
@@ -166,6 +182,8 @@ impl Handler<AbortOrder> for OrderProcessor {
     /// Envia al servidor para abortar la orden.
     /// Esta funcion esta fuera de uso.
     fn handle(&mut self, msg: AbortOrder, _ctx: &mut Self::Context) {
+        self.transactions
+            .insert(msg.transaction_id, TransactionInfo::Completed);
         warn!("Aborting order with transaction id {}", msg.transaction_id)
     }
 }
@@ -176,7 +194,7 @@ impl Handler<AddMoney> for OrderProcessor {
     /// Maneja los mensajes de tipo AddMoney.
     /// Envia al servidor para agregar dinero a la cuenta de un usuario.
     fn handle(&mut self, msg: AddMoney, _ctx: &mut Self::Context) -> Self::Result {
-        let transaction_id = self.add_tx_id(None);
+        let transaction_id = self.add_tx_id(TransactionInfo::Completed);
         let server_socket = self.server_socket.clone();
 
         async move {
