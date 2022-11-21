@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use common::packet::CoffeeMakerId;
+use common::packet::{Amount, CoffeeMakerId};
 use common::AHandler;
 use tracing::{debug, info, trace};
 
@@ -17,7 +17,6 @@ use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timesta
 use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
-use crate::packet_dispatcher::messages::add_points::AddPointsMessage;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
@@ -42,8 +41,8 @@ const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum TransactionId {
-    Discount(ServerId, CoffeeMakerId, u32),
-    Add(ServerId, u32),
+    Discount(ServerId, CoffeeMakerId, Amount),
+    Add(ServerId, Amount),
 }
 
 impl Display for TransactionId {

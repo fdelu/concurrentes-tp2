@@ -95,7 +95,7 @@ impl ClientConnections {
         let future = async move {
             dispatcher_addr
                 .send(BlockPointsMessage {
-                    transaction_id: TransactionId::Discount(server_id, addr.into(), tx_id),
+                    transaction_id: TransactionId::Discount(server_id, addr, tx_id),
                     user_id,
                     amount,
                 })
@@ -132,7 +132,7 @@ impl ClientConnections {
             }
         };
         dispatcher_addr.do_send(DiscountMessage {
-            transaction_id: TransactionId::Discount(self.server_id, addr.into(), tx_id),
+            transaction_id: TransactionId::Discount(self.server_id, addr, tx_id),
             user_id,
         });
         async {}.into_actor(self).boxed_local()
