@@ -1,3 +1,4 @@
+use actix::Supervisor;
 use common::error::{CoffeeError, FlattenResult};
 use common::log::init_logger;
 use tokio::io::{stdin, AsyncReadExt};
@@ -30,7 +31,8 @@ async fn main() {
     let cfg = Config::from_file(&config_path);
     let _g = init_logger(&cfg.logs);
 
-    let dispatcher = PacketDispatcher::new(&cfg);
+    let cfg_c = cfg.clone();
+    let dispatcher = Supervisor::start(move |ctx| PacketDispatcher::new_with_context(&cfg_c, ctx));
     let clients = ClientConnections::new(&cfg, dispatcher);
 
     (clients.send(Listen {}).await.flatten() as Result<(), CoffeeError>)

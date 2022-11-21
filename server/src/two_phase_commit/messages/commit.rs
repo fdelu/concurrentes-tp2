@@ -1,3 +1,4 @@
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::two_phase_commit::{CommitResult, TransactionId, TransactionState, TwoPhaseCommit};
 use crate::ServerId;
@@ -13,8 +14,8 @@ pub struct CommitMessage {
     pub id: TransactionId,
 }
 
-impl<P: AHandler<SendMessage>> Handler<CommitMessage> for TwoPhaseCommit<P> {
-    type Result = ResponseActFuture<Self, CommitResult<()>>;
+impl<P: AHandler<SendMessage> + AHandler<DieMessage>> Handler<CommitMessage> for TwoPhaseCommit<P> {
+    type Result = CommitResult<()>;
 
     fn handle(&mut self, msg: CommitMessage, ctx: &mut Self::Context) -> Self::Result {
         debug!("{} Received commit from {} for {}", self, msg.from, msg.id);
@@ -25,11 +26,8 @@ impl<P: AHandler<SendMessage>> Handler<CommitMessage> for TwoPhaseCommit<P> {
                 self.commit_transaction(msg.id, ctx);
             }
         } else {
-            // TODO: Fail
-            // It is possible that a transaction was being held while syncing the server
-            // and there is no entry in the logs
-            // In this case, restart the server and send a new sync request
+            self.dispatcher.do_send(DieMessage);
         }
-        async move { Ok(()) }.into_actor(self).boxed_local()
+        Ok(())
     }
 }

@@ -2,6 +2,7 @@ use crate::dist_mutex::MutexResult;
 use crate::dist_mutex::{DistMutex, MutexError};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use actix::prelude::*;
 use common::AHandler;
@@ -21,7 +22,10 @@ where
 impl<F, P, R, Fut> Handler<DoWithLock<F, R, Fut>> for DistMutex<P>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    P: AHandler<BroadcastMessage> + AHandler<SendMessage> + AHandler<PruneMessage>,
+    P: AHandler<BroadcastMessage>
+        + AHandler<SendMessage>
+        + AHandler<PruneMessage>
+        + AHandler<DieMessage>,
     Fut: Future<Output = R>,
     R: Send + 'static,
 {

@@ -83,6 +83,10 @@ impl ClientConnections {
         });
     }
 
+    /// Maneja los mensajes de tipo PrepareOrder que se reciben a traves del socket.
+    /// Envia la orden al [PacketDispatcher] con el mensaje [BlockPointsMessage] y
+    /// si sale bien envia un mensaje de tipo Ready a la cafetera, sino le envia
+    /// un error.
     fn prepare_order(
         &mut self,
         user_id: UserId,
@@ -114,6 +118,9 @@ impl ClientConnections {
             .boxed_local()
     }
 
+    /// Maneja los mensajes de tipo CommitOrder que se reciben a traves del socket.
+    /// Primero corrobora que la transaccion a commitear se haya preparado y de ser
+    /// asi envia un [DiscountMessage] al [PacketDispatcher].
     fn commit_order(&mut self, tx_id: TxId, addr: SocketAddr) -> ResponseActFuture<Self, ()> {
         let dispatcher_addr = self.dispatcher_addr.clone();
         let user_id: UserId = match self
@@ -138,6 +145,8 @@ impl ClientConnections {
         async {}.into_actor(self).boxed_local()
     }
 
+    /// Maneja los mensajes de tipo CommitOrder que se reciben a traves del socket.
+    /// Envia un mensaje tipo [QueuePointsMessage] al [PacketDispatcher].
     fn add_points(&mut self, user_id: UserId, amount: Amount) -> ResponseActFuture<Self, ()> {
         self.dispatcher_addr.do_send(QueuePointsMessage {
             id: user_id,
@@ -150,6 +159,7 @@ impl ClientConnections {
 impl Handler<ReceivedPacket<ClientPacket>> for ClientConnections {
     type Result = ResponseActFuture<Self, ()>;
 
+    /// Maneja los paquetes que envia el cliente a traves del [ConnectionHandler].
     fn handle(
         &mut self,
         msg: ReceivedPacket<ClientPacket>,

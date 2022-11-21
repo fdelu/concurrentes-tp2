@@ -27,7 +27,6 @@ impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseC
         if confirmed_servers.is_superset(&msg.connected_servers) {
             if let Some((state, _)) = self.logs.get_mut(&msg.id) {
                 if *state == TransactionState::Abort {
-                    // debug!("{} Not committing {} because it was aborted", self, msg.id);
                     return;
                 }
                 *state = TransactionState::Commit;
