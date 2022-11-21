@@ -2,6 +2,7 @@
 use std::io;
 use std::marker::{PhantomData, Send};
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 use actix::{Actor, Context, Handler, Recipient, ResponseActFuture, WrapFuture};
 #[cfg(not(test))]
@@ -10,11 +11,14 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 #[cfg(test)]
 use test_util::{MockTcpSocket as TcpSocket, MockTcpStream as TcpStream};
-use tokio::sync::{
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    oneshot,
-};
 use tokio::{select, spawn};
+use tokio::{
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        oneshot,
+    },
+    time::timeout,
+};
 use tracing::{trace, warn};
 
 mod error;
@@ -30,6 +34,7 @@ pub use messages::*;
 pub(crate) type OnRead<T> = Box<dyn Fn(T) + Send + 'static>;
 
 pub(crate) const PACKET_SEP: u8 = b'\n';
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub trait PacketSend: Serialize + Send + Sync + Unpin + 'static {}
 impl<T: Serialize + Send + Sync + Unpin + 'static> PacketSend for T {}
@@ -119,17 +124,27 @@ where
     // Connects a TcpStream to the specified address
     async fn connect(bind_to: Option<IpAddr>, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("Socket connecting to {}...", addr);
-        let stream = if let Some(bind_to) = bind_to {
-            let socket = match bind_to {
-                IpAddr::V4(_) => TcpSocket::new_v4(),
-                IpAddr::V6(_) => TcpSocket::new_v6(),
-            }?;
-            socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
-            trace!("Binded socket to {} before connecting to {}", bind_to, addr);
-            socket.connect(addr).await
-        } else {
-            TcpStream::connect(addr).await
-        };
+        let stream = timeout(CONNECT_TIMEOUT, async move {
+            if let Some(bind_to) = bind_to {
+                let socket = match bind_to {
+                    IpAddr::V4(_) => TcpSocket::new_v4(),
+                    IpAddr::V6(_) => TcpSocket::new_v6(),
+                }?;
+                socket.bind(SocketAddr::new(bind_to, 0))?; // Bind to any port
+                trace!("Binded socket to {} before connecting to {}", bind_to, addr);
+                socket.connect(addr).await
+            } else {
+                TcpStream::connect(addr).await
+            }
+        })
+        .await
+        .map_err(|_| {
+            SocketError::new(&format!(
+                "Connection to {} timed out: failed to connect after {}ms",
+                addr,
+                CONNECT_TIMEOUT.as_millis()
+            ))
+        })?;
         trace!("Socket connected to {}", addr);
         stream
     }
