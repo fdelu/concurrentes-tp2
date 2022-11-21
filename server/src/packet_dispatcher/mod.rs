@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use common::packet::{Amount, CoffeeMakerId};
+use common::packet::{CoffeeMakerId, TxId};
 use common::AHandler;
 use tracing::{debug, info, trace};
 
@@ -42,18 +42,18 @@ const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum TransactionId {
-    Discount(ServerId, CoffeeMakerId, Amount),
-    Add(ServerId, Amount),
+    Discount(ServerId, CoffeeMakerId, TxId),
+    Add(ServerId, u32),
 }
 
 impl Display for TransactionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransactionId::Discount(server_id, client_id, points) => {
-                write!(f, "Discount({}, {}, {})", server_id, client_id, points)
+            TransactionId::Discount(server_id, client_id, tx_id) => {
+                write!(f, "Discount({}, {}, {})", server_id, client_id, tx_id)
             }
-            TransactionId::Add(server_id, points) => {
-                write!(f, "Add({}, {})", server_id, points)
+            TransactionId::Add(server_id, id) => {
+                write!(f, "Add({}, {})", server_id, id)
             }
         }
     }
