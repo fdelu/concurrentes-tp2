@@ -238,6 +238,8 @@ pub enum PacketDispatcherError {
     InsufficientPoints,
     DiscountFailed,
     IncreaseFailed,
+    ActixMailboxFull,
+    ServerDisconnected,
     Other,
 }
 
@@ -254,6 +256,21 @@ impl From<PacketDispatcherError> for CoffeeError {
         match e {
             PacketDispatcherError::InsufficientPoints => CoffeeError::InsufficientPoints,
             _ => Self::new(&e.to_string()),
+        }
+    }
+}
+
+impl From<MailboxError> for PacketDispatcherError {
+    fn from(_: MailboxError) -> Self {
+        PacketDispatcherError::ActixMailboxFull
+    }
+}
+
+impl From<CommitError> for PacketDispatcherError {
+    fn from(e: CommitError) -> Self {
+        match e {
+            CommitError::Timeout => PacketDispatcherError::Timeout,
+            CommitError::Disconnected => PacketDispatcherError::ServerDisconnected,
         }
     }
 }
