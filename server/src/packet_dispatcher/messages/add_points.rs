@@ -29,7 +29,7 @@ impl Handler<AddPointsMessage> for PacketDispatcher {
         let tp_commit_addr = self.two_phase_commit.clone();
         let tp_commit_addr_c = tp_commit_addr.clone();
         let new_transaction_value = self.points_ids_counter;
-        let connected_servers = self.get_connected_servers().clone();
+        let connected_servers = self.get_connected_servers();
 
         self.points_ids_counter += 1;
         let server_id = self.server_id;

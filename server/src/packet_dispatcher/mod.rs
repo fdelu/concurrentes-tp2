@@ -17,7 +17,6 @@ use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timesta
 use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
-use crate::packet_dispatcher::messages::add_points::AddPointsMessage;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
