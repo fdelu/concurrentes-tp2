@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use tracing::debug;
+use tracing::{debug, trace};
 use crate::PacketDispatcher;
 
 #[derive(Message)]
@@ -9,8 +9,10 @@ pub struct DieMessage;
 impl Handler<DieMessage> for PacketDispatcher {
     type Result = ();
 
-    fn handle(&mut self, _msg: DieMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: DieMessage, _: &mut Self::Context) -> Self::Result {
         debug!("[PacketDispatcher] Received DieMessage");
-        ctx.stop();
+        self.mutexes.values().for_each(|mutex| {
+            mutex.do_send(DieMessage);
+        });
     }
 }
