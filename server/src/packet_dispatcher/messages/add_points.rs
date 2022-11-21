@@ -84,7 +84,7 @@ async fn send_commit_complete(
         })
     };
     match mutex.send(DoWithLock { action }).await {
-        Ok(Ok(Ok(()))) => {
+        Ok(Ok(Ok(Ok(())))) => {
             debug!("Transaction {} succeeded", transaction_id);
             Ok(())
         }

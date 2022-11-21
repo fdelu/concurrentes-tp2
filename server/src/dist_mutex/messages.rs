@@ -1,9 +1,9 @@
+use crate::dist_mutex::packets::Timestamp;
+use crate::dist_mutex::MutexResult;
+use crate::ServerId;
 use actix::prelude::*;
 use std::collections::HashSet;
 use std::future::Future;
-use crate::dist_mutex::packets::{Timestamp};
-use crate::ServerId;
-use crate::dist_mutex::MutexResult;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -39,7 +39,6 @@ pub(crate) struct RequestMessage {
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
 pub struct AcquireMessage;
-
 
 /// Ejecuta una función en exclusión mutua.
 /// El mensaje adquiere el mutex y luego ejecuta la función.

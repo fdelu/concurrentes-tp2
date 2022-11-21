@@ -32,7 +32,7 @@ impl Handler<DiscountMessage> for PacketDispatcher {
                 })
             };
             match mutex.send(DoWithLock { action }).await {
-                Ok(Ok(Ok(()))) => {
+                Ok(Ok(Ok(Ok(())))) => {
                     debug!("Transaction {} succeeded", msg.transaction_id);
                     Ok(())
                 }

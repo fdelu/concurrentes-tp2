@@ -1,17 +1,21 @@
-use std::collections::HashSet;
-use actix::prelude::*;
-use tracing::{debug, error, info, warn};
-use common::AHandler;
-use std::time::Duration;
-use tokio::sync::oneshot;
-use tokio::time;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncResponsePacket};
-use crate::two_phase_commit::{CommitError, CommitResult, TransactionState, TwoPhaseCommit};
-use crate::two_phase_commit::messages::{CommitCompleteMessage, CommitMessage, CommitRequestMessage, ForwardDatabaseMessage, PrepareMessage, RemoveTransactionMessage, RollbackMessage, UpdateDatabaseMessage, VoteNoMessage, VoteYesMessage};
+use crate::two_phase_commit::messages::{
+    CommitCompleteMessage, CommitMessage, CommitRequestMessage, ForwardDatabaseMessage,
+    PrepareMessage, RollbackMessage, TransactionTimeoutMessage, UpdateDatabaseMessage,
+    VoteNoMessage, VoteYesMessage,
+};
 use crate::two_phase_commit::packets::PreparePacket;
+use crate::two_phase_commit::{CommitError, CommitResult, TransactionState, TwoPhaseCommit};
+use actix::prelude::*;
+use common::AHandler;
+use std::collections::HashSet;
+use std::time::Duration;
+use tokio::sync::oneshot;
+use tokio::time;
+use tracing::{debug, error, info, warn};
 
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_millis(5000);
 
@@ -95,10 +99,10 @@ impl<P: Actor> Handler<RollbackMessage> for TwoPhaseCommit<P> {
     }
 }
 
-impl<P: Actor> Handler<RemoveTransactionMessage> for TwoPhaseCommit<P> {
+impl<P: Actor> Handler<TransactionTimeoutMessage> for TwoPhaseCommit<P> {
     type Result = ();
 
-    fn handle(&mut self, msg: RemoveTransactionMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TransactionTimeoutMessage, ctx: &mut Self::Context) -> Self::Result {
         error!(
             "{} Timeout while waiting for transaction {}, aborting it",
             self, msg.transaction_id
@@ -167,7 +171,7 @@ impl<P: AHandler<SendMessage> + AHandler<DieMessage>> Handler<CommitMessage> for
 }
 
 impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseCommit<P> {
-    type Result = ();
+    type Result = Result<(), String>;
 
     fn handle(&mut self, msg: CommitCompleteMessage, ctx: &mut Self::Context) -> Self::Result {
         debug!("{} Trying to commit {}", self, msg.id);
@@ -179,17 +183,19 @@ impl<P: AHandler<BroadcastMessage>> Handler<CommitCompleteMessage> for TwoPhaseC
         if confirmed_servers.is_superset(&msg.connected_servers) {
             if let Some((state, _)) = self.logs.get_mut(&msg.id) {
                 if *state == TransactionState::Abort {
-                    return;
+                    return Err(format!("{} Transaction {} is aborted", self, msg.id));
                 }
                 *state = TransactionState::Commit;
                 self.commit_transaction(msg.id, ctx);
                 self.broadcast_commit(msg.id);
             }
+            Ok(())
         } else {
             debug!(
                 "{} Not committing {} because not all servers have confirmed",
                 self, msg.id
             );
+            Err("Not all servers have confirmed".to_string())
         }
     }
 }

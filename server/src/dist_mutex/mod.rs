@@ -4,6 +4,7 @@ use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
+use actix::fut::LocalBoxActorFuture;
 use actix::prelude::*;
 use common::error::FlattenResult;
 use common::AHandler;
@@ -11,14 +12,13 @@ use std::collections::HashSet;
 use std::fmt::Display;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use actix::fut::LocalBoxActorFuture;
 use tokio::time;
 use tracing::debug;
 
 pub mod messages;
+pub mod messages_impls;
 pub mod packets;
 pub mod server_id;
-pub mod messages_impls;
 
 #[cfg(not(test))]
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_secs(10);
@@ -133,7 +133,7 @@ impl<P: Actor> DistMutex<P> {
 /// - `packet`: Paquete a enviar.
 fn do_send<P>(dispatcher_addr: &Addr<P>, to: ServerId, packet: MutexPacket)
 where
-    P: AHandler<SendMessage>
+    P: AHandler<SendMessage>,
 {
     let packet = Packet::Mutex(packet);
     dispatcher_addr.do_send(SendMessage { to, packet });

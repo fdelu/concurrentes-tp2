@@ -17,16 +17,16 @@ use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::TransactionId;
-use messages::RemoveTransactionMessage;
 use crate::two_phase_commit::packets::{
     CommitPacket, PreparePacket, RollbackPacket, TPCommitPacket, Transaction, VoteNoPacket,
     VoteYesPacket,
 };
 use crate::ServerId;
+use messages::TransactionTimeoutMessage;
 
 pub mod messages;
-pub mod packets;
 pub mod messages_impls;
+pub mod packets;
 
 const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
 
@@ -152,7 +152,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
             return;
         }
         let handle = ctx.notify_later(
-            RemoveTransactionMessage { transaction_id: id },
+            TransactionTimeoutMessage { transaction_id: id },
             MAX_POINT_BLOCKING_TIME,
         );
         self.transactions_timeouts.insert(id, handle);

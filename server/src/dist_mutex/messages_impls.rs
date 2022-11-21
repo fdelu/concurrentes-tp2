@@ -1,17 +1,21 @@
-use actix::prelude::*;
-use common::AHandler;
-use tracing::{debug, info};
-use std::future::Future;
-use crate::dist_mutex::{DistMutex, do_send, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR};
-use crate::dist_mutex::messages::{AckMessage, AcquireMessage, DoWithLock, OkMessage, ReleaseMessage, RequestMessage};
-use crate::dist_mutex::MutexError::Mailbox;
+use crate::dist_mutex::messages::{
+    AckMessage, AcquireMessage, DoWithLock, OkMessage, ReleaseMessage, RequestMessage,
+};
 use crate::dist_mutex::packets::{AckPacket, MutexPacket, OkPacket, RequestPacket};
+use crate::dist_mutex::MutexError::Mailbox;
+use crate::dist_mutex::{
+    do_send, DistMutex, MutexError, MutexResult, TIME_UNTIL_DISCONNECT_POLITIC, TIME_UNTIL_ERROR,
+};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
 use crate::ServerId;
+use actix::prelude::*;
+use common::AHandler;
+use std::future::Future;
+use tracing::{debug, info};
 
 impl<P: AHandler<SendMessage>> Handler<ReleaseMessage> for DistMutex<P> {
     type Result = ();
@@ -59,12 +63,20 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
     type Result = ();
 
     fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) {
-        do_send(&self.dispatcher, msg.from, MutexPacket::Ack(AckPacket { id: self.id }));
+        do_send(
+            &self.dispatcher,
+            msg.from,
+            MutexPacket::Ack(AckPacket { id: self.id }),
+        );
 
         if let Some(my_timestamp) = &self.lock_timestamp {
             if my_timestamp > &msg.timestamp {
                 debug!("{} {:?} has priority over me, sending ok", self, msg.from);
-                do_send(&self.dispatcher, msg.from, MutexPacket::Ok(OkPacket { id: self.id }));
+                do_send(
+                    &self.dispatcher,
+                    msg.from,
+                    MutexPacket::Ok(OkPacket { id: self.id }),
+                );
             } else {
                 debug!(
                     "{} I have priority over {} (my timestamp {} - other timestamp: {})",
@@ -77,7 +89,11 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
                 "{} I am not waiting for lock, sending ok to {}",
                 self, msg.from
             );
-            do_send(&self.dispatcher, msg.from, MutexPacket::Ok(OkPacket { id: self.id }));
+            do_send(
+                &self.dispatcher,
+                msg.from,
+                MutexPacket::Ok(OkPacket { id: self.id }),
+            );
         }
     }
 }
@@ -182,6 +198,7 @@ mod tests {
     use actix::prelude::*;
 
     use crate::dist_mutex::messages::AckMessage;
+    use crate::dist_mutex::messages::AcquireMessage;
     use crate::dist_mutex::messages::OkMessage;
     use crate::dist_mutex::server_id::ServerId;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
@@ -189,7 +206,6 @@ mod tests {
     use crate::packet_dispatcher::messages::prune::PruneMessage;
     use crate::packet_dispatcher::messages::public::die::DieMessage;
     use crate::packet_dispatcher::packet::Packet;
-    use crate::dist_mutex::messages::AcquireMessage;
     use common::socket::SocketError;
 
     struct TestDispatcher {
@@ -274,9 +290,14 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
-        let ack = AckMessage{from: another_server_id};
+        let ack = AckMessage {
+            from: another_server_id,
+        };
         let connected_servers = HashSet::from([another_server_id]);
-        let ok = OkMessage{from: another_server_id, connected_servers};
+        let ok = OkMessage {
+            from: another_server_id,
+            connected_servers,
+        };
 
         let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
@@ -290,7 +311,9 @@ mod tests {
     async fn test_acquire_with_ack_but_no_ok_returns_timeout() {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
-        let ack = AckMessage{from: another_server_id};
+        let ack = AckMessage {
+            from: another_server_id,
+        };
 
         let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
@@ -306,8 +329,11 @@ mod tests {
         let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let ack = AckMessage{from: server_id_1};
-        let ok = OkMessage{from: server_id_1, connected_servers};
+        let ack = AckMessage { from: server_id_1 };
+        let ok = OkMessage {
+            from: server_id_1,
+            connected_servers,
+        };
 
         let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
@@ -323,8 +349,11 @@ mod tests {
         let server_id_2 = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
         let connected_servers = HashSet::from([server_id_1, server_id_2]);
 
-        let ack = AckMessage{from: server_id_1};
-        let ok = OkMessage{from: server_id_1, connected_servers};
+        let ack = AckMessage { from: server_id_1 };
+        let ok = OkMessage {
+            from: server_id_1,
+            connected_servers,
+        };
 
         let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
@@ -342,9 +371,14 @@ mod tests {
         let (mutex, _, _) = create_mutex();
         let another_server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
-        let ack = AckMessage{from: another_server_id};
+        let ack = AckMessage {
+            from: another_server_id,
+        };
         let connected_servers = HashSet::from([another_server_id]);
-        let ok = OkMessage{from: another_server_id, connected_servers};
+        let ok = OkMessage {
+            from: another_server_id,
+            connected_servers,
+        };
 
         let result = mutex.send(AcquireMessage {});
         mutex.do_send(ack);
