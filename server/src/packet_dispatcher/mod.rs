@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::net::SocketAddr;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -16,10 +17,12 @@ use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timesta
 use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
 use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
+use crate::packet_dispatcher::messages::add_points::AddPointsMessage;
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
+use crate::packet_dispatcher::messages::try_add_points::TryAddPointsMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
 use crate::two_phase_commit::messages::commit::CommitMessage;
 use crate::two_phase_commit::messages::forward_database::ForwardDatabaseMessage;
@@ -41,6 +44,19 @@ const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
 pub enum TransactionId {
     Discount(ServerId, CoffeeMakerId, u32),
     Add(ServerId, u32),
+}
+
+impl Display for TransactionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransactionId::Discount(server_id, client_id, points) => {
+                write!(f, "Discount({}, {}, {})", server_id, client_id, points)
+            }
+            TransactionId::Add(server_id, points) => {
+                write!(f, "Add({}, {})", server_id, points)
+            }
+        }
+    }
 }
 
 pub trait PacketDispatcherTrait:
@@ -114,13 +130,7 @@ impl PacketDispatcher {
     }
 
     fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {
-        ctx.run_interval(ADD_POINTS_ATTEMPT_INTERVAL, |me, ctx| {
-            me.try_to_add_points(ctx);
-        });
-    }
-
-    fn try_to_add_points(&mut self, ctx: &mut Context<Self>) {
-
+        ctx.notify_later(TryAddPointsMessage, ADD_POINTS_ATTEMPT_INTERVAL);
     }
 
     fn send_sync_request(&mut self, ctx: &mut Context<Self>) {

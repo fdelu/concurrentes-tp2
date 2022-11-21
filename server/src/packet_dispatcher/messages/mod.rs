@@ -5,3 +5,4 @@ pub mod prune;
 pub mod public;
 pub mod send;
 pub mod add_points;
+pub mod try_add_points;

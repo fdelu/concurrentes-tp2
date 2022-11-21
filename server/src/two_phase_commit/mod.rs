@@ -16,6 +16,7 @@ use crate::dist_mutex::packets::{get_timestamp, Timestamp};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::packet::Packet;
+use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::remove_transaction::RemoveTransactionMessage;
 use crate::two_phase_commit::packets::{
     CommitPacket, PreparePacket, RollbackPacket, Transaction, TwoPhaseCommitPacket, VoteNoPacket,
@@ -27,10 +28,6 @@ pub mod messages;
 pub mod packets;
 
 const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
-
-/// Unique identifier for a transaction. Must be the size of [TxId](common::packet::TxId)
-/// and [UserId](common::packet::UserId) combined.
-pub type TransactionId = u64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {
@@ -239,6 +236,7 @@ pub enum PacketDispatcherError {
     Timeout,
     InsufficientPoints,
     DiscountFailed,
+    IncreaseFailed,
     Other
 }
 

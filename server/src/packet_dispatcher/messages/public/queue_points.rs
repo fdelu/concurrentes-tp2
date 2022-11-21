@@ -2,7 +2,7 @@ use actix::prelude::*;
 use common::packet::UserId;
 use crate::PacketDispatcher;
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 #[rtype(result = "()")]
 pub struct QueuePointsMessage {
     pub id: UserId,

@@ -5,19 +5,16 @@ use actix::{
 };
 use tracing::info;
 
-use crate::{
-    config::Config,
-    network::{ConnectionHandler, Listen, SendPacket},
-    packet_dispatcher::{
-        messages::public::{block_points::BlockPointsMessage, discount::DiscountMessage},
-        PacketDispatcher,
-    },
-};
+use crate::{config::Config, network::{ConnectionHandler, Listen, SendPacket}, packet_dispatcher::{
+    messages::public::{block_points::BlockPointsMessage, discount::DiscountMessage},
+    PacketDispatcher,
+}, ServerId};
 use common::{
     error::{CoffeeError, FlattenResult},
     packet::{Amount, ClientPacket, ServerPacket, TxId, UserId},
     socket::{ReceivedPacket, SocketError},
 };
+use crate::packet_dispatcher::TransactionId;
 
 /// Maneja las conexiones con clientes.
 pub struct ClientConnections {
@@ -27,6 +24,8 @@ pub struct ClientConnections {
     dispatcher_addr: Addr<PacketDispatcher>,
     // Transacciones recibidas
     prep_transactions: HashMap<SocketAddr, HashMap<TxId, UserId>>,
+    // Id del servidor asociado a esta instancia
+    server_id: ServerId
 }
 
 impl Actor for ClientConnections {
@@ -50,6 +49,7 @@ impl ClientConnections {
                 socket,
                 dispatcher_addr,
                 prep_transactions: HashMap::new(),
+                server_id: ServerId::new(cfg.server_ip)
             }
         })
     }
@@ -83,12 +83,12 @@ impl ClientConnections {
         addr: SocketAddr,
     ) -> ResponseActFuture<Self, ()> {
         let dispatcher_addr = self.dispatcher_addr.clone();
+        let server_id = self.server_id;
         let future = async move {
-            let transaction_id: u64 = ((user_id as u64) << 32) + tx_id as u64;
             dispatcher_addr
                 .send(BlockPointsMessage {
-                    transaction_id,
-                    user_id: user_id,
+                    transaction_id: TransactionId::Discount(server_id,  addr.into(), tx_id),
+                    user_id,
                     amount,
                 })
                 .await
@@ -124,8 +124,8 @@ impl ClientConnections {
             }
         };
         dispatcher_addr.do_send(DiscountMessage {
-            transaction_id: ((user_id as u64) << 32) + tx_id as u64,
-            user_id: user_id,
+            transaction_id: TransactionId::Discount(self.server_id,  addr.into(), tx_id),
+            user_id,
         });
         async {}.into_actor(self).boxed_local()
     }

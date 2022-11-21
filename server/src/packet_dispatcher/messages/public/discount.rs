@@ -1,10 +1,11 @@
 use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMessage;
-use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TransactionId};
+use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
 use crate::PacketDispatcher;
 use actix::prelude::*;
 use tracing::{debug, error};
 use common::packet::UserId;
 use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::packet_dispatcher::TransactionId;
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
