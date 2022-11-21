@@ -6,6 +6,7 @@ use crate::packet_dispatcher::messages::send::SendMessage;
 use actix::prelude::*;
 use common::AHandler;
 use std::future::Future;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 
 #[derive(Message)]
 #[rtype(result = "MutexResult<R>")]
@@ -21,7 +22,7 @@ where
 impl<F, P, R, Fut> Handler<DoWithLock<F, R, Fut>> for DistMutex<P>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    P: AHandler<BroadcastMessage> + AHandler<SendMessage> + AHandler<PruneMessage>,
+    P: AHandler<BroadcastMessage> + AHandler<SendMessage> + AHandler<PruneMessage> + AHandler<DieMessage>,
     Fut: Future<Output = R>,
     R: Send + 'static,
 {

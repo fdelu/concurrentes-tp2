@@ -12,6 +12,7 @@ use common::AHandler;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -70,6 +71,7 @@ pub trait DistMutexTrait:
     + AHandler<AckMessage>
     + AHandler<OkMessage>
     + AHandler<RequestMessage>
+    + AHandler<DieMessage>
 {
 }
 
@@ -98,17 +100,34 @@ impl<P: Actor> Actor for DistMutex<P> {
     type Context = Context<Self>;
 }
 
-impl<P: AHandler<PruneMessage>> DistMutex<P> {
+impl<P: Actor> DistMutex<P> {
     fn clean_state(&mut self) {
         self.ack_received.clear();
         self.ok_received.clear();
         self.all_oks_received_channel = None;
     }
+}
+
+impl<P: AHandler<PruneMessage>> DistMutex<P> {
 
     fn send_prune(&mut self) {
         let message = PruneMessage {
             older_than: self.lock_timestamp.unwrap(),
         };
         self.dispatcher.do_send(message);
+    }
+}
+
+impl<P: Actor> Handler<DieMessage> for DistMutex<P> {
+    type Result = ();
+
+    fn handle(&mut self, _: DieMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.stop();
+    }
+}
+
+impl<P: Actor> Supervised for DistMutex<P> {
+    fn restarting(&mut self, _: &mut Self::Context) {
+        self.clean_state();
     }
 }

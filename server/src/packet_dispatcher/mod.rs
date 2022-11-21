@@ -20,6 +20,7 @@ use crate::network::{ConnectionHandler, ReceivedPacket, SendPacket};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::messages::send::SendMessage;
 use crate::packet_dispatcher::messages::try_add_points::TryAddPointsMessage;
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
@@ -63,6 +64,7 @@ pub trait PacketDispatcherTrait:
     + AHandler<BroadcastMessage>
     + AHandler<PruneMessage>
     + AHandler<SendMessage>
+    + AHandler<DieMessage>
 {
 }
 
@@ -83,8 +85,24 @@ impl Actor for PacketDispatcher {
     type Context = Context<Self>;
 }
 
+impl Supervised for PacketDispatcher {
+    fn restarting(&mut self, ctx: &mut Self::Context) {
+        info!("Restarting PacketDispatcher");
+        self.mutexes.values().for_each(|mutex| {
+            mutex.do_send(DieMessage);
+        });
+        self.initialize_add_points_loop(ctx);
+    }
+}
+
 impl PacketDispatcher {
     pub fn new(cfg: &Config) -> Addr<Self> {
+        Self::create(|ctx| {
+            Self::new_with_context(cfg, ctx)
+        })
+    }
+
+    pub fn new_with_context(cfg: &Config, ctx: &mut Context<Self>) -> Self {
         let my_addr = SocketAddr::new(cfg.server_ip, cfg.server_port);
         let my_id = ServerId::new(cfg.server_ip);
         let servers_last_seen = cfg
@@ -95,8 +113,7 @@ impl PacketDispatcher {
             .collect();
         trace!("Initial servers: {:?}", servers_last_seen);
 
-        Self::create(|ctx| {
-            let socket = ConnectionHandler::new(
+        let socket = ConnectionHandler::new(
                 ctx.address().recipient(),
                 my_addr,
                 true,
@@ -107,7 +124,10 @@ impl PacketDispatcher {
             let mutexes = make_initial_database()
                 .iter()
                 .map(|(&client_id, _)| {
-                    let mutex = DistMutex::new(my_id, client_id, ctx.address()).start();
+                    let my_id_c = my_id;
+                    let client_id_c = client_id;
+                    let dispatcher_addr = ctx.address();
+                    let mutex = Supervisor::start(move |_| {DistMutex::new(my_id_c, client_id_c, dispatcher_addr)});
                     (client_id, mutex)
                 })
                 .collect();
@@ -125,7 +145,6 @@ impl PacketDispatcher {
             ret.initialize_add_points_loop(ctx);
             ret.send_sync_request(ctx);
             ret
-        })
     }
 
     fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {

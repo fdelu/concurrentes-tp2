@@ -13,7 +13,7 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, ()>;
 
     fn handle(&mut self, _msg: TryAddPointsMessage, ctx: &mut Self::Context) -> Self::Result {
-        trace!("Trying to add points");
+        trace!("Trying to add points [{:?}]", self.points_queue);
 
         let addr = ctx.address();
         let points_list = self.points_queue.clone();

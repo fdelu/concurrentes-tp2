@@ -13,6 +13,7 @@ use crate::dist_mutex::{
 };
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
+use crate::packet_dispatcher::messages::public::die::DieMessage;
 use crate::packet_dispatcher::packet::Packet;
 
 #[derive(Message)]
@@ -31,7 +32,7 @@ impl Default for AcquireMessage {
     }
 }
 
-impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMessage>
+impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage> + AHandler<DieMessage>> Handler<AcquireMessage>
     for DistMutex<P>
 {
     type Result = ResponseActFuture<Self, MutexResult<()>>;
@@ -83,6 +84,7 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
                             // We are disconnected
                             // TODO: Handle this
                             debug!("[Mutex {}] We are disconnected", me.id);
+                            me.dispatcher.do_send(DieMessage);
                             me.err_disconnected_future()
                         } else if me.ok_received == me.ack_received {
                             // There are servers that are disconnected
