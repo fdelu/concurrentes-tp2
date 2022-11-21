@@ -5,16 +5,24 @@ use actix::{
 };
 use tracing::info;
 
-use crate::{config::Config, network::{ConnectionHandler, Listen, SendPacket}, packet_dispatcher::{
-    messages::public::{block_points::BlockPointsMessage, discount::DiscountMessage},
-    PacketDispatcher,
-}, ServerId};
+use crate::packet_dispatcher::TransactionId;
+use crate::{
+    config::Config,
+    network::{ConnectionHandler, Listen, SendPacket},
+    packet_dispatcher::{
+        messages::public::{
+            block_points::BlockPointsMessage, discount::DiscountMessage,
+            queue_points::QueuePointsMessage,
+        },
+        PacketDispatcher,
+    },
+    ServerId,
+};
 use common::{
     error::{CoffeeError, FlattenResult},
     packet::{Amount, ClientPacket, ServerPacket, TxId, UserId},
     socket::{ReceivedPacket, SocketError},
 };
-use crate::packet_dispatcher::TransactionId;
 
 /// Maneja las conexiones con clientes.
 pub struct ClientConnections {
@@ -25,7 +33,7 @@ pub struct ClientConnections {
     // Transacciones recibidas
     prep_transactions: HashMap<SocketAddr, HashMap<TxId, UserId>>,
     // Id del servidor asociado a esta instancia
-    server_id: ServerId
+    server_id: ServerId,
 }
 
 impl Actor for ClientConnections {
@@ -49,7 +57,7 @@ impl ClientConnections {
                 socket,
                 dispatcher_addr,
                 prep_transactions: HashMap::new(),
-                server_id: ServerId::new(cfg.server_ip)
+                server_id: ServerId::new(cfg.server_ip),
             }
         })
     }
@@ -87,7 +95,7 @@ impl ClientConnections {
         let future = async move {
             dispatcher_addr
                 .send(BlockPointsMessage {
-                    transaction_id: TransactionId::Discount(server_id,  addr.into(), tx_id),
+                    transaction_id: TransactionId::Discount(server_id, addr.into(), tx_id),
                     user_id,
                     amount,
                 })
@@ -124,8 +132,16 @@ impl ClientConnections {
             }
         };
         dispatcher_addr.do_send(DiscountMessage {
-            transaction_id: TransactionId::Discount(self.server_id,  addr.into(), tx_id),
+            transaction_id: TransactionId::Discount(self.server_id, addr.into(), tx_id),
             user_id,
+        });
+        async {}.into_actor(self).boxed_local()
+    }
+
+    fn add_points(&mut self, user_id: UserId, amount: Amount) -> ResponseActFuture<Self, ()> {
+        self.dispatcher_addr.do_send(QueuePointsMessage {
+            id: user_id,
+            amount,
         });
         async {}.into_actor(self).boxed_local()
     }
@@ -144,7 +160,9 @@ impl Handler<ReceivedPacket<ClientPacket>> for ClientConnections {
                 self.prepare_order(user_id, cost, tx_id, msg.addr)
             }
             ClientPacket::CommitOrder(tx_id) => self.commit_order(tx_id, msg.addr),
-            ClientPacket::AddPoints(_, _, _) => todo!(),
+            ClientPacket::AddPoints(amount, user_id, _) => {
+                self.add_points(user_id, amount) //TODO: check where this data is crossed
+            }
         }
     }
 }

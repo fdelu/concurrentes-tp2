@@ -1,6 +1,6 @@
 use crate::two_phase_commit::TransactionId;
-use serde::{Deserialize, Serialize};
 use common::packet::UserId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TwoPhaseCommitPacket {

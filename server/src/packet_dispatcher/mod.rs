@@ -1,13 +1,13 @@
+use actix::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::SocketAddr;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
-use actix::prelude::*;
 
+use common::packet::CoffeeMakerId;
 use common::AHandler;
 use tracing::{debug, info, trace};
-use common::packet::CoffeeMakerId;
 
 use crate::config::Config;
 use crate::dist_mutex::messages::ack::AckMessage;

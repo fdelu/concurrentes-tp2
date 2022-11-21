@@ -1,12 +1,12 @@
+use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
-use crate::{PacketDispatcher};
+use crate::PacketDispatcher;
 use actix::prelude::*;
-use tracing::{error, info};
 use common::packet::UserId;
-use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
-use crate::packet_dispatcher::TransactionId;
+use tracing::{error, info};
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
@@ -30,28 +30,31 @@ impl Handler<BlockPointsMessage> for PacketDispatcher {
         let tp_commit_addr = self.two_phase_commit.clone();
 
         async move {
-            let action  = move || {
-                tp_commit_addr
-                .send(CommitRequestMessage {
+            let action = move || {
+                tp_commit_addr.send(CommitRequestMessage {
                     id: msg.transaction_id,
                     transaction,
                 })
             };
-            match mutex_c.send(DoWithLock { action }).await
-            {
+            match mutex_c.send(DoWithLock { action }).await {
                 Ok(Ok(Ok(Ok(true)))) => {
                     info!("Transaction {} succeeded", msg.transaction_id);
                     Ok(())
-                },
-                Ok(Ok(Ok(Ok(false)))) =>  {
-                    error!("Transaction {} failed because user has insufficient points", msg.transaction_id);
+                }
+                Ok(Ok(Ok(Ok(false)))) => {
+                    error!(
+                        "Transaction {} failed because user has insufficient points",
+                        msg.transaction_id
+                    );
                     Err(PacketDispatcherError::InsufficientPoints)
-                },
+                }
                 _ => {
                     error!("Transaction {} failed", msg.transaction_id);
                     Err(PacketDispatcherError::Other)
-                },
+                }
             }
-        }.into_actor(self).boxed_local()
+        }
+        .into_actor(self)
+        .boxed_local()
     }
 }

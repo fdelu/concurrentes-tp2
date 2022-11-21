@@ -7,11 +7,11 @@ use crate::dist_mutex::packets::{ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
 use crate::packet_dispatcher::messages::prune::PruneMessage;
 use actix::prelude::*;
+use common::error::FlattenResult;
 use common::AHandler;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use common::error::FlattenResult;
 
 use crate::packet_dispatcher::PacketDispatcherTrait;
 
@@ -50,8 +50,7 @@ pub enum MutexError {
     Mailbox(String),
 }
 
-impl<T> FlattenResult<T, MutexError> for MutexError
-{
+impl<T> FlattenResult<T, MutexError> for MutexError {
     fn flatten(self) -> Result<T, MutexError> {
         Err(self)
     }

@@ -1,10 +1,10 @@
 use crate::dist_mutex::packets::Timestamp;
 use crate::two_phase_commit::packets::Transaction;
-use crate::two_phase_commit::{UserData, TransactionId, TransactionState, TwoPhaseCommit};
+use crate::two_phase_commit::{TransactionId, TransactionState, TwoPhaseCommit, UserData};
 use actix::prelude::*;
+use common::packet::UserId;
 use std::collections::HashMap;
 use tracing::debug;
-use common::packet::UserId;
 
 #[derive(Message)]
 #[rtype(result = "()")]

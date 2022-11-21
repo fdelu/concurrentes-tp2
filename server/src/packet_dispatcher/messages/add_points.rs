@@ -1,13 +1,13 @@
-use actix::prelude::*;
-use tracing::{debug, error};
-use common::packet::UserId;
 use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
 use crate::packet_dispatcher::TransactionId;
-use crate::PacketDispatcher;
 use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMessage;
 use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;
-use crate::two_phase_commit::{PacketDispatcherError};
+use crate::two_phase_commit::PacketDispatcherError;
+use crate::PacketDispatcher;
+use actix::prelude::*;
+use common::packet::UserId;
+use tracing::{debug, error};
 
 #[derive(Message)]
 #[rtype(result = "Result<(), PacketDispatcherError>")]
@@ -36,20 +36,18 @@ impl Handler<AddPointsMessage> for PacketDispatcher {
         let transaction_id = TransactionId::Add(server_id, new_transaction_value);
 
         async move {
-            let action  = move || {
-                tp_commit_addr
-                .send(CommitRequestMessage {
+            let action = move || {
+                tp_commit_addr.send(CommitRequestMessage {
                     id: transaction_id,
                     transaction,
                 })
             };
             if let Ok(Ok(Ok(Ok(true)))) = mutex.send(DoWithLock { action }).await {
-                let action  = move || {
-                tp_commit_addr_c
-                .send(CommitCompleteMessage {
-                    id: transaction_id,
-                    connected_servers,
-                })
+                let action = move || {
+                    tp_commit_addr_c.send(CommitCompleteMessage {
+                        id: transaction_id,
+                        connected_servers,
+                    })
                 };
                 match mutex.send(DoWithLock { action }).await {
                     Ok(Ok(Ok(()))) => {
@@ -65,6 +63,8 @@ impl Handler<AddPointsMessage> for PacketDispatcher {
                 error!("Transaction {} failed", transaction_id);
                 Err(PacketDispatcherError::IncreaseFailed)
             }
-        }.into_actor(self).boxed_local()
+        }
+        .into_actor(self)
+        .boxed_local()
     }
 }

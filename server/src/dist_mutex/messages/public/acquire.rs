@@ -41,10 +41,9 @@ impl<P: AHandler<BroadcastMessage> + AHandler<PruneMessage>> Handler<AcquireMess
         let packet = RequestPacket::new(self.id);
         let timestamp = packet.timestamp;
 
-        self.dispatcher
-            .do_send(BroadcastMessage {
-                packet: Packet::Mutex(MutexPacket::Request(packet)),
-            });
+        self.dispatcher.do_send(BroadcastMessage {
+            packet: Packet::Mutex(MutexPacket::Request(packet)),
+        });
 
         self.lock_timestamp = Some(timestamp);
         self.queue.push((timestamp, self.server_id));

@@ -1,6 +1,6 @@
+use crate::PacketDispatcher;
 use actix::prelude::*;
 use common::packet::UserId;
-use crate::PacketDispatcher;
 
 #[derive(Message, Clone)]
 #[rtype(result = "()")]

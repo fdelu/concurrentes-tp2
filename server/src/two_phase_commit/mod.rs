@@ -8,9 +8,9 @@ use common::error::CoffeeError;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
+use common::packet::UserId;
 use common::AHandler;
 use tracing::{debug, info, trace, warn};
-use common::packet::UserId;
 
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
 use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
@@ -237,7 +237,7 @@ pub enum PacketDispatcherError {
     InsufficientPoints,
     DiscountFailed,
     IncreaseFailed,
-    Other
+    Other,
 }
 
 pub type PacketDispatcherResult<T> = Result<T, PacketDispatcherError>;

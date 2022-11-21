@@ -1,9 +1,9 @@
-use actix::prelude::*;
-use tracing::{debug, trace};
-use crate::packet_dispatcher::ADD_POINTS_ATTEMPT_INTERVAL;
 use crate::packet_dispatcher::messages::add_points::AddPointsMessage;
 use crate::packet_dispatcher::messages::public::queue_points::QueuePointsMessage;
+use crate::packet_dispatcher::ADD_POINTS_ATTEMPT_INTERVAL;
 use crate::PacketDispatcher;
+use actix::prelude::*;
+use tracing::{debug, trace};
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -21,10 +21,13 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
         async move {
             let mut not_added_points = vec![];
             for points in &points_list {
-                if let Ok(Ok(())) = addr.send(AddPointsMessage {
-                    id: points.id,
-                    amount: points.amount,
-                }).await {
+                if let Ok(Ok(())) = addr
+                    .send(AddPointsMessage {
+                        id: points.id,
+                        amount: points.amount,
+                    })
+                    .await
+                {
                     debug!("Added points to user {}", points.id);
                 } else {
                     let msg = QueuePointsMessage {
@@ -35,10 +38,13 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
                 }
             }
             not_added_points
-        }.into_actor(self).then(move |not_added_points, me, ctx| {
+        }
+        .into_actor(self)
+        .then(move |not_added_points, me, ctx| {
             me.points_queue = not_added_points;
             ctx.notify_later(TryAddPointsMessage, ADD_POINTS_ATTEMPT_INTERVAL);
             async {}.into_actor(me)
-        }).boxed_local()
+        })
+        .boxed_local()
     }
 }

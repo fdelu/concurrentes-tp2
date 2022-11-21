@@ -1,11 +1,11 @@
+use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMessage;
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
 use crate::PacketDispatcher;
 use actix::prelude::*;
-use tracing::{debug, error};
 use common::packet::UserId;
-use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
-use crate::packet_dispatcher::TransactionId;
+use tracing::{debug, error};
 
 #[derive(Message)]
 #[rtype(result = "PacketDispatcherResult<()>")]
@@ -25,9 +25,8 @@ impl Handler<DiscountMessage> for PacketDispatcher {
         async move {
             // Esto será ejecutado cuando el servidor tenga el lock
             // del usuario
-            let action  = move || {
-                tp_commit_addr
-                .send(CommitCompleteMessage {
+            let action = move || {
+                tp_commit_addr.send(CommitCompleteMessage {
                     id: msg.transaction_id,
                     connected_servers,
                 })
@@ -40,8 +39,10 @@ impl Handler<DiscountMessage> for PacketDispatcher {
                 _ => {
                     error!("Transaction {} failed", msg.transaction_id);
                     Err(PacketDispatcherError::DiscountFailed)
-                },
+                }
             }
-        }.into_actor(self).boxed_local()
+        }
+        .into_actor(self)
+        .boxed_local()
     }
 }

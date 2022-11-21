@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use common::packet::UserId;
+use serde::{Deserialize, Serialize};
 
 use crate::dist_mutex::packets::{MutexPacket, Timestamp};
 use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::packets::{Transaction, TwoPhaseCommitPacket};
-use crate::two_phase_commit::{UserData, TransactionState};
+use crate::two_phase_commit::{TransactionState, UserData};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncRequestPacket {
