@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::dist_mutex::packets::{MutexPacket, Timestamp};
 use crate::packet_dispatcher::TransactionId;
-use crate::two_phase_commit::messages::update_database::UpdateDatabaseMessage;
+use crate::two_phase_commit::messages::UpdateDatabaseMessage;
 use crate::two_phase_commit::packets::{TPCommitPacket, Transaction};
 use crate::two_phase_commit::{TransactionState, UserData};
 

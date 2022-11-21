@@ -10,9 +10,9 @@ use common::AHandler;
 use tracing::{debug, info, trace};
 
 use crate::config::Config;
-use crate::dist_mutex::messages::ack::AckMessage;
-use crate::dist_mutex::messages::ok::OkMessage;
-use crate::dist_mutex::messages::request::RequestMessage;
+use crate::dist_mutex::messages::AckMessage;
+use crate::dist_mutex::messages::OkMessage;
+use crate::dist_mutex::messages::RequestMessage;
 use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
 use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};

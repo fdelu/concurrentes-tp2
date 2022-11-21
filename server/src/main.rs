@@ -6,8 +6,6 @@ use tracing::info;
 
 use crate::client_connections::ClientConnections;
 use crate::config::Config;
-use crate::dist_mutex::messages::public::acquire::AcquireMessage;
-use crate::dist_mutex::messages::public::release::ReleaseMessage;
 use crate::dist_mutex::server_id::ServerId;
 use crate::network::Listen;
 use crate::packet_dispatcher::PacketDispatcher;

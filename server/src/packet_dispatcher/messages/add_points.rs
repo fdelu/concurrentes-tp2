@@ -1,8 +1,8 @@
-use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::dist_mutex::messages::DoWithLock;
 use crate::dist_mutex::DistMutex;
 use crate::packet_dispatcher::TransactionId;
-use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMessage;
-use crate::two_phase_commit::messages::public::commit_request::CommitRequestMessage;
+use crate::two_phase_commit::messages::CommitCompleteMessage;
+use crate::two_phase_commit::messages::CommitRequestMessage;
 use crate::two_phase_commit::packets::Transaction;
 use crate::two_phase_commit::{PacketDispatcherError, TwoPhaseCommit};
 use crate::{PacketDispatcher, ServerId};

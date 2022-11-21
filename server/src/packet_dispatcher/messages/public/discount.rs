@@ -1,6 +1,6 @@
-use crate::dist_mutex::messages::public::do_with_lock::DoWithLock;
+use crate::dist_mutex::messages::DoWithLock;
 use crate::packet_dispatcher::TransactionId;
-use crate::two_phase_commit::messages::public::commit_complete::CommitCompleteMessage;
+use crate::two_phase_commit::messages::CommitCompleteMessage;
 use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult};
 use crate::PacketDispatcher;
 use actix::prelude::*;
