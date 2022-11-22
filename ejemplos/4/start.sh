@@ -1,5 +1,6 @@
 rm -rf cafeteras/logs
 rm -rf servidores/logs
+rm -rf servidores/databases
 
 cargo build --bin server
 cargo build --bin coffee_maker

@@ -100,7 +100,7 @@ impl PacketDispatcher {
             Some(CONNECTION_TIMEOUT),
         )
         .start();
-        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address());
+        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address(), cfg);
 
         let mut ret = Self {
             server_id: my_id,
