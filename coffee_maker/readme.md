@@ -30,13 +30,13 @@ También se puede agregar puntos a las cuentas de los usuarios mediante el mensa
 
 La cafetera recibe como parametro un archivo de configuración tipo JSON. Los parametros son.
 
-`order_from`: es el path del archivo del cual se van a leer las ordenes para esta cafetera. se le puede pasar "stdin" para que en cambio lea la consola.
+`order_from`: Es el path del archivo del cual se van a leer las ordenes para esta cafetera. se le puede pasar "stdin" para que en cambio lea la consola.
 
-`server_ip`: es el ip y puerto del servidor local al cual se conectará esta cafetera.
+`server_ip`: Es el ip y puerto del servidor local al cual se conectará esta cafetera.
 
-`logs`: dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
+`logs`: Dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
 
-`fail_probability`: es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
+`fail_probability`: Es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
 
 Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config,js)
 

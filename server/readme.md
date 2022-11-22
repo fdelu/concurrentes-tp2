@@ -81,3 +81,39 @@ Simplifica la comunicación, a bajo nivel, entre diferentes servidores.
 Expone una interfaz, con mensajes, que se asemeja mucho a la comunicación UDP: `SendPacket` para enviar un paquete a una
 dirección específica, y `RecvPacket` para recibir un paquete desde cualquier servidor.
 Para garantizar la entrega confiable de la información, se implementó utilizando TCP
+
+## Configuración
+
+La cafetera recibe como parametro un archivo de configuración tipo JSON. Los parametros son.
+
+`server_ip`: El ip para este el servidor que se va a ejecutar.
+
+`server_port`: El puerto por donde se va a comunicar con otros servidores.
+
+`client_port`: El puerto por donde se va a comunicar con las cafeteras.
+
+`servers`: Una lista de ips de los servidores en la red.
+
+`add_points_interval_ms`: Intervalo entre intentos de agregar puntos.
+
+`logs`: Dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
+
+## Comandos
+
+### Ejecución
+
+```
+cargo run [config file]
+```
+
+### Tests
+
+```
+cargo test
+```
+
+### Documentación
+
+```
+cargo doc --open
+```
