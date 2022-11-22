@@ -172,8 +172,10 @@ where
 
     fn handle(&mut self, msg: DoWithLock<F, R, Fut>, ctx: &mut Self::Context) -> Self::Result {
         let addr = ctx.address();
+        let lock = self.lock.clone();
 
         async move {
+            let _guard = lock.lock().await;
             if addr.send(AcquireMessage {}).await.is_err() {
                 return Err(MutexError::Timeout);
             };

@@ -10,8 +10,9 @@ use common::error::FlattenResult;
 use common::AHandler;
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 use tokio::time;
 use tracing::debug;
 
@@ -67,6 +68,9 @@ pub struct DistMutex<P: Actor> {
     /// Canal utilizado para esperar la recepción de los `AckMessage`
     /// y `OkMessage` necesarios para adquirir el mutex.
     all_oks_received_channel: Option<oneshot::Sender<()>>,
+    /// Lock para evitar que se intente adquirir el mismo lock más de una vez
+    /// por el mismo servidor.
+    lock: Arc<Mutex<()>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -108,6 +112,7 @@ impl<P: Actor> MutexCreationTrait<P> for DistMutex<P> {
             ok_received: HashSet::new(),
             all_oks_received_channel: None,
             queue: Vec::new(),
+            lock: Arc::new(Mutex::new(())),
         }
     }
 }
@@ -122,6 +127,7 @@ impl<P: Actor> DistMutex<P> {
         self.ack_received.clear();
         self.ok_received.clear();
         self.all_oks_received_channel = None;
+        self.lock_timestamp = None;
     }
 }
 
