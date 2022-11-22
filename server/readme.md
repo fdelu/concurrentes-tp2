@@ -43,6 +43,13 @@ desconectado.
 Si el emisor de un `Prepare` no envía un `Commit` o `Rollback` luego de un período de tiempo, se considera que la transacción
 debe ser abortada.
 
+### Reconexión de servidores
+Cuando un servidor detecta que se encuentra desconectado, comienza a enviar mensajes de `SyncRequest`. Cuando se conecte
+nuevamente, el resto de servidores responderán con un `SyncResponse`, en el cual se envía la base de datos actualizada.
+Este mensaje permite
+- Obtener los cambios producidos en la red mientras el servidor se encontraba desconectado
+- Comunicar al resto de servidores que la conexión se ha restablecido
+
 ## Modelo de concurrencia
 
 El módulo fue implementado casi en su totalidad utilizando herramientas del modelo de actores, con la ayuda del crate
