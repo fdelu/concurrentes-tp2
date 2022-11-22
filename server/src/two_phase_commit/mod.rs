@@ -1,8 +1,10 @@
 use core::fmt;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 use std::time::Duration;
 
 use actix::prelude::*;
@@ -35,6 +37,8 @@ pub mod packets;
 const COMMIT_WAIT_TIME: Duration = Duration::from_secs(30);
 /// Cantidad de puntos con que se crea un usuario
 const USER_STARTING_POINTS: u32 = 100;
+
+const DATABASE_FOLDER: &str = "databases";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {
@@ -213,8 +217,13 @@ impl<P: Actor> TwoPhaseCommit<P> {
 
     /// Escribe la base de datos en un archivo.
     fn dump_database(&mut self) {
+        if !Path::new(DATABASE_FOLDER).exists() {
+            fs::create_dir(DATABASE_FOLDER).unwrap();
+        }
+
         let file = File::create(format!(
-            "databases/database_server_{}.json",
+            "{}/database_server_{}.json",
+            DATABASE_FOLDER,
             self.server_id.to_number()
         ))
         .unwrap();
