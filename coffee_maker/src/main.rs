@@ -47,7 +47,7 @@ fn print_results(results: Vec<(Order, TransactionResult)>) {
 #[actix_rt::main]
 async fn main() {
     let config_path = std::env::args().nth(1).expect("No config file provided");
-    let cfg = Config::from_file(&config_path);
+    let cfg = Config::from_file(&config_path).await;
     let _guard = init_logger(&cfg.logs);
 
     print_results(start_coffee_maker(&cfg).await);

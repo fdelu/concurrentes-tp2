@@ -30,6 +30,7 @@ pub mod messages_impls;
 pub mod packets;
 
 const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
+const INITIAL_POINTS: u32 = 100;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {
@@ -44,11 +45,17 @@ pub struct UserData {
 }
 
 pub fn make_initial_database() -> HashMap<UserId, UserData> {
-    let mut database = HashMap::new();
+    /*let mut database = HashMap::new();
     for client_id in 0..10 {
-        database.insert(client_id, UserData { points: 100 });
+        database.insert(
+            client_id,
+            UserData {
+                points: INITIAL_POINTS,
+            },
+        );
     }
-    database
+    database*/
+    HashMap::new()
 }
 
 pub struct TwoPhaseCommit<P: Actor> {
@@ -145,7 +152,12 @@ impl<P: Actor> TwoPhaseCommit<P> {
 
     fn get_or_create_user(&mut self, client_id: &UserId) -> &mut UserData {
         if !self.database.contains_key(client_id) {
-            self.database.insert(*client_id, UserData { points: 100 });
+            self.database.insert(
+                *client_id,
+                UserData {
+                    points: INITIAL_POINTS,
+                },
+            );
         }
         self.database.get_mut(client_id).unwrap()
     }

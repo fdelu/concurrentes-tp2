@@ -1,7 +1,7 @@
 use actix::Supervisor;
 use common::error::{CoffeeError, FlattenResult};
 use common::log::init_logger;
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::signal;
 use tracing::info;
 
 use crate::client_connections::ClientConnections;
@@ -28,7 +28,7 @@ pub mod two_phase_commit;
 #[actix_rt::main]
 async fn main() {
     let config_path = std::env::args().nth(1).expect("No config file provided");
-    let cfg = Config::from_file(&config_path);
+    let cfg = Config::from_file(&config_path).await;
     let _g = init_logger(&cfg.logs);
 
     let cfg_c = cfg.clone();
@@ -38,7 +38,7 @@ async fn main() {
     (clients.send(Listen {}).await.flatten() as Result<(), CoffeeError>)
         .expect("Failed to initialize server listener");
 
-    info!("Press [ENTER] to stop execution");
-    let mut buf = [0u8; 1];
-    stdin().read_exact(&mut buf).await.ok();
+    info!("Press Ctrl+C to stop execution");
+    signal::ctrl_c().await.expect("failed to listen for event");
+    actix_rt::System::current().stop();
 }
