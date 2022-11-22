@@ -73,8 +73,47 @@ Sus mensajes principales son `Broadcast` y `Send`, para enviar un mensaje a todo
 Por otro lado, gestiona internamente el reintento de agregado de puntos, en caso de que el servidor se encuentre sin
 conexión.
 
+### Client Connections
+Maneja las conexiones con el cliente. Este actor recive ordenes de la cafetera a traves de `ConnectionHandler`, las procesa y envia la información correspondiente a `PacketDispatcher`. Tambien se encarga de contestarle a la cafetera cuando es necesario y producir los errores correspondientes si los hay. Este actor se maneja con los tipos de paquetes que maneja la cafetera asi que para más información sobre este protocolo ver su [readme.md](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/readme.md).
+
 ### ConnectionHandler
 Simplifica la comunicación, a bajo nivel, entre diferentes servidores.
 Expone una interfaz, con mensajes, que se asemeja mucho a la comunicación UDP: `SendPacket` para enviar un paquete a una
 dirección específica, y `RecvPacket` para recibir un paquete desde cualquier servidor.
 Para garantizar la entrega confiable de la información, se implementó utilizando TCP
+
+## Configuración
+
+La cafetera recibe como parametro un archivo de configuración tipo JSON. Los parametros son.
+
+`server_ip`: El ip para este el servidor que se va a ejecutar.
+
+`server_port`: El puerto por donde se va a comunicar con otros servidores.
+
+`client_port`: El puerto por donde se va a comunicar con las cafeteras.
+
+`servers`: Una lista de ips de los servidores en la red.
+
+`add_points_interval_ms`: Intervalo entre intentos de agregar puntos.
+
+`logs`: Dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
+
+## Comandos
+
+### Ejecución
+
+```
+cargo run [config file]
+```
+
+### Tests
+
+```
+cargo test
+```
+
+### Documentación
+
+```
+cargo doc --open
+```
