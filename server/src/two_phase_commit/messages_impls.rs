@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time;
+use tracing::trace;
 use tracing::{debug, error, info, warn};
 
 const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_millis(5000);
@@ -33,7 +34,14 @@ impl<P: AHandler<BroadcastMessage>> Handler<VoteYesMessage> for TwoPhaseCommit<P
             .entry(msg.id)
             .or_insert_with(HashSet::new);
         confirmed_servers.insert(msg.from);
-        if msg.connected_servers.is_superset(confirmed_servers) {
+        trace!(
+            "Current connected servers: {:?}\nCurrent confirmed servers: {:?}",
+            msg.connected_servers,
+            confirmed_servers
+        );
+
+        if confirmed_servers.is_superset(&msg.connected_servers) {
+            trace!("All servers confirmed!");
             self.coordinator_timeouts
                 .remove(&msg.id)
                 .map(|tx| tx.send(true));

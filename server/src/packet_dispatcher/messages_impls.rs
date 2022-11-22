@@ -314,14 +314,13 @@ async fn make_add_points_commit(
     transaction_id: TransactionId,
 ) -> Result<(), PacketDispatcherError> {
     let action = move || async move {
-        info!("ADD POINTS COMMIT STARTING");
+        info!("Requesting commit to add points tx. id {}", transaction_id);
         let can_add = tp_commit_addr
             .send(CommitRequestMessage {
                 id: transaction_id,
                 transaction,
             })
             .await??;
-
         if !can_add
             || tp_commit_addr
                 .send(CommitCompleteMessage {
@@ -331,10 +330,9 @@ async fn make_add_points_commit(
                 .await?
                 .is_err()
         {
-            error!("HERE");
             return Err(PacketDispatcherError::IncreaseFailed);
         }
-        info!("ADD POINTS COMMIT DONE");
+        info!("Add points commit for tx. id {} done", transaction_id);
         Ok(())
     };
     match mutex.send(DoWithLock { action }).await? {
