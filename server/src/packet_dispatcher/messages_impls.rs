@@ -10,8 +10,10 @@ use crate::packet_dispatcher::{TransactionId, ADD_POINTS_ATTEMPT_INTERVAL};
 use crate::two_phase_commit::messages::{
     CommitCompleteMessage, CommitRequestMessage, ForwardDatabaseMessage,
 };
+
+use super::error::{PacketDispatcherError, PacketDispatcherResult};
 use crate::two_phase_commit::packets::Transaction;
-use crate::two_phase_commit::{PacketDispatcherError, PacketDispatcherResult, TwoPhaseCommit};
+use crate::two_phase_commit::TwoPhaseCommit;
 use crate::{Listen, PacketDispatcher, ServerId};
 use actix::prelude::*;
 use common::socket::{ReceivedPacket, SocketError};
