@@ -4,7 +4,7 @@ En este ejemplo se van a abrir 3 servidores con 2 cafeteras:
 
 - Servidor 1 (127.0.0.1) con una cafetera
 - Servidor 2 (127.0.0.2) con otra cafetera
-- Servidor 3 (127.0.0.3)
+- Servidor 3 (127.0.0.3) con otra cafetera
 
 ## Ejecución
 
@@ -12,9 +12,7 @@ Ejecutar `./start.sh`. En la terminal se deberían imprimir los outputs de las c
 
 ## Resultado esperado
 
-La cantidad de puntos inicial para cada usuario es 100.
-
-Todas las ordenes de ambas cafeteras deberían tener éxito, excepto la del café 2 de la cafetera 1 y la del café 3 de la cafetera 2, ya que no alcanzan los puntos.
+Este ejemplo demuestra una cafetera que se conecta despues de que la red ya haya hecho transacciones. La secuencia es identica al ejemplo 1 pero al finalizar estas se conecta la tercera cafetera al servidor 3 y intentará hacer una transaccion que cuesta 100 puntos para el usuario 3, la cual debería fallar porque la cafetera 1 ya le descontó 5 puntos al usuario 3 y luego una transaccion que cuesta 90 puntos al usuario 3 la cual debería ser exitosa.
 
 ### Cafetera 1
 
@@ -34,6 +32,13 @@ Todas las ordenes de ambas cafeteras deberían tener éxito, excepto la del caf�
 [SALE: coffee 'cafe 3', user '1', '60' points]: Failed: InsufficientPoints
 [SALE: coffee 'cafe 4', user '1', '10' points]: Completed
 [RECHARGE: user '25', '10' points]: Completed
+```
+
+### Cafetera 2
+
+```
+[SALE: coffee 'cafe 5', user '3', '100' points]: Failed: InsufficientPoints
+[SALE: coffee 'cafe 6', user '3', '90' points]: Completed
 ```
 
 ### Base de datos

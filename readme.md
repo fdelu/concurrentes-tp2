@@ -21,3 +21,7 @@ El servidor se comunica con los servidores de todos los otros locales para que c
 ## Común
 
 En común se guarda código útil para ambas aplicaciones. Su código se encuentra en la carpeta [common](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/tree/main/common) y su documentación en el [readme.md](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/common/readme.md) dentro de la carpeta.
+
+## Ejemplos
+
+En la carpeta [ejemplos](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/tree/main/ejemplos) se encuentran casos de prueba automatizados que integran todo el sistema y prueban diversas situaciones que pueden suceder en ejecución. Cada uno tiene un archivo `readme.md` que explica su ejecución y lo que se espera.
