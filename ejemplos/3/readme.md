@@ -14,11 +14,7 @@ Ejecutar `./start.sh`. En la terminal se deberían imprimir los outputs de las c
 
 ## Resultado esperado
 
-La cantidad de puntos inicial para cada usuario es 100.
-
-Todas las ordenes de ambas cafeteras deberían tener éxito, excepto la del café 2 de la cafetera 1 y la del café 3 de la cafetera 2, ya que no alcanzan los puntos.
-
-Las primeras dos ordenes de ambas cafeteras deberían tener éxito excepto por sus terceras que deberian fallas.
+Todas las transacciones de ambas cafeteras deberán ser exitosas excepto por el cafe 5 de la cafetera 1 y el cafe 7 de la cafetera 2 ya que para ellas no alcanzaran los puntos.
 
 ### Cafetera 1
 

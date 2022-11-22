@@ -1,5 +1,6 @@
 rm -rf cafeteras/logs
 rm -rf servidores/logs
+rm -rf servidores/databases
 
 cargo build --bin server
 cargo build --bin coffee_maker
@@ -31,6 +32,9 @@ wait $pid3
 echo "Cafetera 3 terminó"
 
 echo "Parando servidores"
+# Sleep de un poco más que "add_points_interval_ms" en la config de los servers para que terminen
+# de procesar los puntos
+sleep 1 
 kill -INT $pids1
 kill -INT $pids2
 kill -INT $pids3

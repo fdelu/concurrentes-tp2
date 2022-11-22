@@ -13,6 +13,8 @@
             "ip": "127.0.0.3"
         }
     ],
+    "add_points_interval_ms": 500,
+    "database_dump_path": "servidores/databases",
     "logs": {
         "files_directory": "servidores/logs/2",
         "file_log_level": "trace",

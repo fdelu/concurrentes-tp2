@@ -15,6 +15,7 @@ use common::packet::UserId;
 use common::AHandler;
 use tracing::{debug, info, trace, warn};
 
+use crate::config::Config;
 use crate::dist_mutex::packets::{get_timestamp, Timestamp};
 use crate::packet_dispatcher::messages::BroadcastMessage;
 use crate::packet_dispatcher::messages::SendMessage;
@@ -38,14 +39,14 @@ const COMMIT_WAIT_TIME: Duration = Duration::from_secs(30);
 /// Cantidad de puntos con que se crea un usuario
 const USER_STARTING_POINTS: u32 = 100;
 
-const DATABASE_FOLDER: &str = "databases";
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {
     Prepared,
     Commit,
     Abort,
 }
+
+const PRINT_DATABASE_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserData {
@@ -74,6 +75,7 @@ pub struct TwoPhaseCommit<P: Actor> {
     dispatcher: Addr<P>,
     database: HashMap<UserId, UserData>,
     database_last_update: Timestamp,
+    config: Config,
 }
 
 impl<P: Actor> Actor for TwoPhaseCommit<P> {
@@ -95,10 +97,10 @@ pub enum CommitError {
 pub type CommitResult<T> = Result<T, CommitError>;
 
 impl<P: Actor> TwoPhaseCommit<P> {
-    pub fn new(server_id: ServerId, dispatcher: Addr<P>) -> Addr<Self> {
+    pub fn new(server_id: ServerId, dispatcher: Addr<P>, config: &Config) -> Addr<Self> {
         let logs = HashMap::new();
         Self::create(|ctx| {
-            ctx.run_interval(Duration::from_secs(10), |me, _| {
+            ctx.run_interval(PRINT_DATABASE_INTERVAL, |me, _| {
                 trace!("Database: {:#?}", me.database);
             });
             Self {
@@ -110,6 +112,7 @@ impl<P: Actor> TwoPhaseCommit<P> {
                 dispatcher,
                 database: make_initial_database(),
                 database_last_update: 0,
+                config: config.clone(),
             }
         })
     }
@@ -217,20 +220,28 @@ impl<P: Actor> TwoPhaseCommit<P> {
 
     /// Escribe la base de datos en un archivo.
     fn dump_database(&mut self) {
-        if !Path::new(DATABASE_FOLDER).exists() {
-            fs::create_dir(DATABASE_FOLDER).unwrap();
+        let path = match &self.config.database_dump_path {
+            Some(path) => path,
+            None => return,
+        };
+
+        if !Path::new(path).exists() && fs::create_dir_all(path).is_err() {
+            warn!("Could not create database folder");
+            return;
         }
 
         let file = File::create(format!(
             "{}/database_server_{}.json",
-            DATABASE_FOLDER,
+            path,
             self.server_id.to_number()
         ));
         if let Ok(file) = file {
             let mut writer = BufWriter::new(file);
-            let mut database: Vec<_> = self.database.iter().collect();
-            database.sort_by_key(|(id, _)| *id);
-            let database: Vec<_> = database.into_iter().map(|(_, data)| data.points).collect();
+            let database: HashMap<_, _> = self
+                .database
+                .iter()
+                .map(|(id, data)| (id, data.points))
+                .collect();
             serde_json::to_writer_pretty(&mut writer, &database).unwrap();
         }
     }

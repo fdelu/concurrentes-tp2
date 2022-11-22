@@ -32,7 +32,6 @@ pub mod packet;
 mod tests;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
-const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum TransactionId {
@@ -101,7 +100,7 @@ impl PacketDispatcher {
             Some(CONNECTION_TIMEOUT),
         )
         .start();
-        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address());
+        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address(), cfg);
 
         let mut ret = Self {
             server_id: my_id,
@@ -119,7 +118,8 @@ impl PacketDispatcher {
     }
 
     fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {
-        ctx.notify_later(TryAddPointsMessage, ADD_POINTS_ATTEMPT_INTERVAL);
+        let interval = Duration::from_millis(self.config.add_points_interval_ms);
+        ctx.notify_later(TryAddPointsMessage, interval);
     }
 
     fn send_sync_request(&mut self, ctx: &mut Context<Self>) {

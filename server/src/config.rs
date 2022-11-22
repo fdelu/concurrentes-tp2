@@ -14,6 +14,8 @@ pub struct Config {
     pub server_port: u16,
     pub client_port: u16,
     pub logs: LogConfig,
+    pub add_points_interval_ms: u64,
+    pub database_dump_path: Option<String>,
 }
 
 impl Config {

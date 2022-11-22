@@ -7,7 +7,9 @@ use common::log::LogConfig;
 use common::packet::{CoffeeMakerId, UserId};
 use rand::Rng;
 use serial_test::serial;
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -44,6 +46,8 @@ fn make_config(server_number: u32, server_amount: u32) -> Config {
             file_log_level: Level::DEBUG,
             files_directory: "logs_test".to_string(),
         },
+        add_points_interval_ms: 5000,
+        database_dump_path: Some("databases".to_string()),
     }
 }
 
@@ -79,15 +83,20 @@ async fn discount(
         .unwrap();
 }
 
+fn parse_db(path: PathBuf) -> HashMap<UserId, u32> {
+    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap()
+}
+
 // Lee todos los archivos de la carpeta `databases` y realiza un assert de que
 // todos los archivos tienen el mismo contenido.
 fn assert_databases_are_equal() {
     let mut files = std::fs::read_dir("databases").unwrap();
     let first_file = files.next().unwrap().unwrap();
-    let first_file_content = std::fs::read(first_file.path()).unwrap();
+    let first_file_content = parse_db(first_file.path());
+
     for file in files {
         let file = file.unwrap();
-        let file_content = std::fs::read(file.path()).unwrap();
+        let file_content = parse_db(file.path());
         assert_eq!(first_file_content, file_content);
     }
 }
