@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// TODO: Change to struct and compare with server id in case of collision
 pub type Timestamp = u128;
 pub type ResourceId = u32;
 

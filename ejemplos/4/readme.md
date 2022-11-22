@@ -25,7 +25,3 @@ En este ejemplo todas las cafeteras intenan hacer una compra de 55 puntos con el
 ```
 [SALE: coffee 'cafe 1', user '3', '55' points]: Failed: InsufficientPoints
 ```
-
-### Base de datos
-
-TODO: Ver logs o dump de db.

@@ -35,7 +35,3 @@ Todas las ordenes de ambas cafeteras deberían tener éxito, excepto la del caf�
 [SALE: coffee 'cafe 4', user '1', '10' points]: Completed
 [RECHARGE: user '25', '10' points]: Completed
 ```
-
-### Base de datos
-
-TODO: Ver logs o dump de db.

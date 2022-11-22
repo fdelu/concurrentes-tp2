@@ -1,3 +1,4 @@
+ #!/bin/bash
 N_SERVERS=5
 N_CLIENTS_PER_SERVER=10
 
@@ -41,7 +42,7 @@ done
 echo "Parando servidores"
 # Sleep de un poco más que "add_points_interval_ms" en la config de los servers para que terminen
 # de procesar los puntos
-sleep 3
+sleep 5
 for pid in ${pid_servers[*]}
 do
     kill -INT $pid

@@ -33,7 +33,3 @@ Todas las transacciones de ambas cafeteras deberán ser exitosas excepto por el 
 [SALE: coffee 'cafe 7', user '3', '100' points]: Failed: InsufficientPoints
 [SALE: coffee 'cafe 8', user '3', '5' points]: Completed
 ```
-
-### Base de datos
-
-TODO: Ver logs o dump de db.

@@ -40,7 +40,3 @@ Este ejemplo demuestra una cafetera que se conecta despues de que la red ya haya
 [SALE: coffee 'cafe 5', user '3', '100' points]: Failed: InsufficientPoints
 [SALE: coffee 'cafe 6', user '3', '90' points]: Completed
 ```
-
-### Base de datos
-
-TODO: Ver logs o dump de db.
