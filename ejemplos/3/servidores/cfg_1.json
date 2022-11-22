@@ -13,6 +13,7 @@
             "ip": "127.0.0.3"
         }
     ],
+    "add_points_interval_ms": 500,
     "logs": {
         "files_directory": "servidores/logs/1",
         "file_log_level": "trace",

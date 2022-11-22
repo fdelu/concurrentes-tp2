@@ -13,6 +13,7 @@
             "ip": "127.0.0.3"
         }
     ],
+    "add_points_interval_ms": 5000,
     "logs": {
         "files_directory": "logs/1",
         "file_log_level": "info",

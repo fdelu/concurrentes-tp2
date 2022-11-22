@@ -44,6 +44,7 @@ fn make_config(server_number: u32, server_amount: u32) -> Config {
             file_log_level: Level::DEBUG,
             files_directory: "logs_test".to_string(),
         },
+        add_points_interval_ms: 5000,
     }
 }
 

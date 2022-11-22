@@ -119,12 +119,10 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
                 match lines.next_line().await {
                     Ok(Some(line)) => match line.parse::<Order>() {
                         Ok(order) => {
-                            let r = this
-                                .send(AddOrder {
-                                    order: order.clone(),
-                                })
-                                .await;
-                            futures.push((order, r.unwrap_or_else(TransactionResult::from)));
+                            let future = this.send(AddOrder {
+                                order: order.clone(),
+                            });
+                            futures.push((order, future));
                         }
                         Err(e) => error!("Failed to parse order: {}", e),
                     },
@@ -137,7 +135,11 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
                     }
                 }
             }
-            futures
+            let mut results = vec![];
+            for (order, future) in futures {
+                results.push((order, future.await.unwrap_or_else(TransactionResult::from)));
+            }
+            results
         }
         .into_actor(self)
         .boxed_local()
