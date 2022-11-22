@@ -17,7 +17,13 @@ impl ServerId {
     }
 
     pub fn to_number(&self) -> u16 {
-        self.ip.to_string().split('.').last().unwrap().parse().unwrap()
+        self.ip
+            .to_string()
+            .split('.')
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap()
     }
 }
 
