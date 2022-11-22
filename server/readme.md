@@ -117,6 +117,7 @@ cargo run [config file]
 
 ```
 cargo test
+RUSTFLAGS="--cfg mocks" cargo test
 ```
 
 ### Documentación
