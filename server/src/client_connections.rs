@@ -74,7 +74,7 @@ impl ClientConnections {
         info!("Sending ERROR for tx {}", tx_id);
         self.socket.do_send(SendPacket {
             to: addr,
-            data: ServerPacket::ServerErrror(tx_id, err),
+            data: ServerPacket::ServerError(tx_id, err),
         });
     }
 

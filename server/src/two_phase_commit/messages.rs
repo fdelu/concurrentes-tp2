@@ -83,7 +83,7 @@ pub struct VoteNoMessage {
 
 /// Mensaje que recibe un actor de un servidor
 /// como respuesta de haber solicitado una actualización
-/// de la base de datos con `SyncRequestMessage`.
+/// de la base de datos con `SyncRequestPacket`.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UpdateDatabaseMessage {

@@ -15,6 +15,16 @@ impl ServerId {
     pub fn get_socket_addr(&self, port: u16) -> SocketAddr {
         SocketAddr::new(self.ip, port)
     }
+
+    pub fn to_number(&self) -> u16 {
+        self.ip
+            .to_string()
+            .split('.')
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
 }
 
 impl From<SocketAddr> for ServerId {

@@ -24,10 +24,12 @@ use messages::QueuePointsMessage;
 use messages::SendMessage;
 use messages::TryAddPointsMessage;
 
+pub mod error;
 pub mod messages;
 pub mod messages_impls;
 pub mod packet;
-pub mod error;
+#[cfg(test)]
+mod tests;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
 const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
@@ -99,7 +101,7 @@ impl PacketDispatcher {
             Some(CONNECTION_TIMEOUT),
         )
         .start();
-        let two_phase_commit = TwoPhaseCommit::new(ctx.address());
+        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address());
         let mutexes = make_initial_database()
             .iter()
             .map(|(&client_id, _)| {

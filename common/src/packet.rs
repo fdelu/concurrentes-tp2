@@ -25,5 +25,5 @@ pub enum ClientPacket {
 pub enum ServerPacket {
     Ready(TxId),
     Insufficient(TxId),
-    ServerErrror(TxId, CoffeeError),
+    ServerError(TxId, CoffeeError),
 }
