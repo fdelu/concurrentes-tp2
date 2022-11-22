@@ -18,18 +18,18 @@ use crate::network::{ConnectionHandler, SendPacket};
 use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket};
 use crate::server_id::ServerId;
 use crate::two_phase_commit::packets::TPCommitPacket;
-use crate::two_phase_commit::{make_initial_database, TwoPhaseCommit};
+use crate::two_phase_commit::TwoPhaseCommit;
 use messages::DieMessage;
 use messages::QueuePointsMessage;
 use messages::SendMessage;
 use messages::TryAddPointsMessage;
 
+pub mod error;
 pub mod messages;
 pub mod messages_impls;
 pub mod packet;
 #[cfg(test)]
 mod tests;
-pub mod error;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
 const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
@@ -101,23 +101,11 @@ impl PacketDispatcher {
             Some(CONNECTION_TIMEOUT),
         )
         .start();
-        let two_phase_commit = TwoPhaseCommit::new(my_id,ctx.address());
-        let mutexes = make_initial_database()
-            .iter()
-            .map(|(&client_id, _)| {
-                let my_id_c = my_id;
-                let client_id_c = client_id;
-                let dispatcher_addr = ctx.address();
-                let mutex = Supervisor::start(move |_| {
-                    DistMutex::new(my_id_c, client_id_c, dispatcher_addr)
-                });
-                (client_id, mutex)
-            })
-            .collect();
+        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address());
 
         let mut ret = Self {
             server_id: my_id,
-            mutexes,
+            mutexes: HashMap::new(),
             socket,
             servers_last_seen,
             two_phase_commit,
@@ -195,12 +183,14 @@ impl PacketDispatcher {
 
     fn get_or_create_mutex(
         &mut self,
-        ctx: &mut Context<PacketDispatcher>,
+        ctx: &mut Context<Self>,
         id: ResourceId,
     ) -> &mut Addr<DistMutex<PacketDispatcher>> {
         let mutex = self.mutexes.entry(id).or_insert_with(|| {
             info!("Creating mutex for Resource {}", id);
-            DistMutex::new(self.server_id, id, ctx.address()).start()
+            let server_id = self.server_id;
+            let addr = ctx.address();
+            Supervisor::start(move |_| DistMutex::new(server_id, id, addr))
         });
         mutex
     }

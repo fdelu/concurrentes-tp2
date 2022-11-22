@@ -17,7 +17,13 @@ impl ServerId {
     }
 
     pub fn to_number(&self) -> u16 {
-        self.ip.to_string().split('.').last().unwrap().parse().unwrap()
+        self.ip
+            .to_string()
+            .split('.')
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap()
     }
 }
 
@@ -30,5 +36,11 @@ impl From<SocketAddr> for ServerId {
 impl Display for ServerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[ServerId {}]", self.ip)
+    }
+}
+
+impl PartialOrd for ServerId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.to_string().cmp(&other.to_string()))
     }
 }

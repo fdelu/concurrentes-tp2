@@ -69,31 +69,40 @@ impl<P: AHandler<SendMessage>> Handler<RequestMessage> for DistMutex<P> {
             MutexPacket::Ack(AckPacket { id: self.id }),
         );
 
-        if let Some(my_timestamp) = &self.lock_timestamp {
-            if my_timestamp > &msg.timestamp {
-                debug!("{} {:?} has priority over me, sending ok", self, msg.from);
-                do_send(
-                    &self.dispatcher,
-                    msg.from,
-                    MutexPacket::Ok(OkPacket { id: self.id }),
-                );
-            } else {
-                debug!(
-                    "{} I have priority over {} (my timestamp {} - other timestamp: {})",
-                    self, msg.from, my_timestamp, msg.timestamp
-                );
-                self.queue.push((msg.timestamp, msg.from));
-            }
-        } else {
-            debug!(
-                "{} I am not waiting for lock, sending ok to {}",
-                self, msg.from
-            );
+        if self.should_send_ok_for(&msg) {
+            debug!("{} sending ok to {}", self, msg.from);
             do_send(
                 &self.dispatcher,
                 msg.from,
                 MutexPacket::Ok(OkPacket { id: self.id }),
             );
+        } else {
+            debug!("{} queueing {}", self, msg.from);
+            self.queue.push((msg.timestamp, msg.from));
+        }
+    }
+}
+
+impl<P: Actor> DistMutex<P> {
+    fn should_send_ok_for(&self, msg: &RequestMessage) -> bool {
+        if let Some(my_timestamp) = self.lock_timestamp {
+            match my_timestamp.cmp(&msg.timestamp) {
+                std::cmp::Ordering::Greater => {
+                    debug!("{} server {} has priority over me", self, msg.from);
+                    true
+                }
+                std::cmp::Ordering::Equal => self.server_id < msg.from,
+                std::cmp::Ordering::Less => {
+                    debug!(
+                        "{} I have priority over {} (my timestamp {} - other timestamp: {})",
+                        self, msg.from, my_timestamp, msg.timestamp
+                    );
+                    false
+                }
+            }
+        } else {
+            debug!("{} I am not waiting for lock", self);
+            true
         }
     }
 }
@@ -191,21 +200,26 @@ impl RequestMessage {
 #[cfg(test)]
 #[allow(unused_must_use, clippy::type_complexity)]
 mod tests {
+    use actix::actors::mocker::Mocker;
     use std::collections::HashSet;
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use actix::prelude::*;
+    use tokio::time::sleep;
 
-    use crate::dist_mutex::messages::AckMessage;
     use crate::dist_mutex::messages::AcquireMessage;
     use crate::dist_mutex::messages::OkMessage;
+    use crate::dist_mutex::messages::{AckMessage, RequestMessage};
+    use crate::dist_mutex::packets::get_timestamp;
     use crate::dist_mutex::{DistMutex, MutexCreationTrait, MutexError};
     use crate::packet_dispatcher::messages::BroadcastMessage;
     use crate::packet_dispatcher::messages::DieMessage;
     use crate::packet_dispatcher::messages::PruneMessage;
     use crate::packet_dispatcher::packet::Packet;
     use crate::server_id::ServerId;
+    use crate::PacketDispatcher;
     use common::socket::SocketError;
 
     struct TestDispatcher {
@@ -386,5 +400,61 @@ mod tests {
 
         assert_eq!(result.await.unwrap(), Ok(()));
         System::current().stop();
+    }
+
+    #[actix_rt::test]
+    async fn test_mutex_prioritizes_lower_timestamp() {
+        let requester_timestamp = get_timestamp();
+        sleep(Duration::from_millis(1)).await;
+        let timestamp = get_timestamp();
+        let server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        let requester_msg = RequestMessage {
+            from: ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))),
+            timestamp: requester_timestamp,
+        };
+
+        let dispatcher =
+            Mocker::<PacketDispatcher>::mock(Box::new(move |_, _| Box::new(()))).start();
+
+        let mut mutex = DistMutex::new(server_id, 1, dispatcher);
+        mutex.lock_timestamp = Some(timestamp);
+
+        assert!(mutex.should_send_ok_for(&requester_msg));
+    }
+
+    #[actix_rt::test]
+    async fn test_mutex_prioritizes_with_lower_ip_if_timestamp_is_the_same() {
+        let timestamp = get_timestamp();
+        let server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
+        let requester_msg = RequestMessage {
+            from: ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            timestamp,
+        };
+
+        let dispatcher =
+            Mocker::<PacketDispatcher>::mock(Box::new(move |_, _| Box::new(()))).start();
+
+        let mut mutex = DistMutex::new(server_id, 1, dispatcher);
+        mutex.lock_timestamp = Some(timestamp);
+
+        assert!(!mutex.should_send_ok_for(&requester_msg));
+    }
+
+    #[actix_rt::test]
+    async fn test_mutex_sends_ok_if_my_timestamp_is_none() {
+        let timestamp = get_timestamp();
+        let server_id = ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));
+        let requester_msg = RequestMessage {
+            from: ServerId::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            timestamp,
+        };
+
+        let dispatcher =
+            Mocker::<PacketDispatcher>::mock(Box::new(move |_, _| Box::new(()))).start();
+
+        let mut mutex = DistMutex::new(server_id, 1, dispatcher);
+        mutex.lock_timestamp = None;
+
+        assert!(mutex.should_send_ok_for(&requester_msg));
     }
 }

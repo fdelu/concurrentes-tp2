@@ -29,7 +29,12 @@ pub mod messages;
 pub mod messages_impls;
 pub mod packets;
 
-const MAX_POINT_BLOCKING_TIME: Duration = Duration::from_secs(30);
+/// Tiempo de espera de la confirmación de una transacción.
+/// Si no se recibe confirmación en este tiempo, se asume que la transacción ha fallado,
+/// y se realiza un rollback.
+const COMMIT_WAIT_TIME: Duration = Duration::from_secs(30);
+/// Cantidad de puntos con que se crea un usuario
+const USER_STARTING_POINTS: u32 = 100;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionState {
@@ -46,7 +51,12 @@ pub struct UserData {
 pub fn make_initial_database() -> HashMap<UserId, UserData> {
     let mut database = HashMap::new();
     for client_id in 0..10 {
-        database.insert(client_id, UserData { points: 100 });
+        database.insert(
+            client_id,
+            UserData {
+                points: USER_STARTING_POINTS,
+            },
+        );
     }
     database
 }
@@ -100,6 +110,15 @@ impl<P: Actor> TwoPhaseCommit<P> {
         })
     }
 
+    /// Intenta realizar la primera fase de una transacción.
+    /// En caso de realizarse, devuelve `true`, y coloca un timeout para la segunda fase.
+    /// Si no se recibe ninguna confirmación, el timeout cancelará la transacción.
+    /// Si se recibe una confirmación, se cancelará el timeout.
+    /// En caso de no realizarse esta primera fase, devuelve `false`.
+    /// Argumentos:
+    /// - `transaction_id`: Identificador de la transacción que se está intentando realizar.
+    /// - `transaction`: Información de la transacción que se está intentando realizar.
+    /// - `ctx`: Contexto del actor.
     fn prepare_transaction(
         &mut self,
         transaction_id: TransactionId,
@@ -143,24 +162,44 @@ impl<P: Actor> TwoPhaseCommit<P> {
         }
     }
 
+    /// Busca un usuario en la base de datos, y si no lo encuentra, lo crea.
+    /// Argumentos:
+    /// - `client_id`: Identificador del usuario a buscar.
+    /// Devuelve:
+    /// - Referencia mutable al usuario buscado.
     fn get_or_create_user(&mut self, client_id: &UserId) -> &mut UserData {
         if !self.database.contains_key(client_id) {
-            self.database.insert(*client_id, UserData { points: 100 });
+            self.database.insert(
+                *client_id,
+                UserData {
+                    points: USER_STARTING_POINTS,
+                },
+            );
         }
         self.database.get_mut(client_id).unwrap()
     }
 
+    /// Establece un timeout para la segunda fase de una transacción.
+    /// Cuando se cumple el timeout, se envía un mensaje `TransactionTimeoutMessage` al actor.
+    /// Argumentos:
+    /// - `id`: Identificador de la transacción a la que se le establece el timeout.
+    /// - `ctx`: Contexto del actor.
     fn set_timeout_for_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
         if self.transactions_timeouts.get(&id).is_some() {
             return;
         }
         let handle = ctx.notify_later(
             TransactionTimeoutMessage { transaction_id: id },
-            MAX_POINT_BLOCKING_TIME,
+            COMMIT_WAIT_TIME,
         );
         self.transactions_timeouts.insert(id, handle);
     }
 
+    /// Confirma la segunda fase de una transacción,
+    /// cancelando el timeout correspondiente.
+    /// Argumentos:
+    /// - `id`: Identificador de la transacción a confirmar.
+    /// - `ctx`: Contexto del actor.
     fn commit_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
         info!("Committing transaction {}", id);
         if let Some(h) = self.transactions_timeouts.remove(&id) {
@@ -172,18 +211,25 @@ impl<P: Actor> TwoPhaseCommit<P> {
         self.logs.get_mut(&id).unwrap().0 = TransactionState::Commit;
     }
 
+    /// Escribe la base de datos en un archivo.
     fn dump_database(&mut self) {
-        let file = File::create(format!("databases/database_server_{}.json", self.server_id.to_number())).unwrap();
+        let file = File::create(format!(
+            "databases/database_server_{}.json",
+            self.server_id.to_number()
+        ))
+        .unwrap();
         let mut writer = BufWriter::new(file);
         let mut database: Vec<_> = self.database.iter().collect();
         database.sort_by_key(|(id, _)| *id);
-        let database: Vec<_> = database
-            .into_iter()
-            .map(|(_, data)| data.points)
-            .collect();
+        let database: Vec<_> = database.into_iter().map(|(_, data)| data.points).collect();
         serde_json::to_writer_pretty(&mut writer, &database).unwrap();
     }
 
+    /// Cancela la segunda fase de una transacción,
+    /// cancelando el timeout correspondiente.
+    /// Argumentos:
+    /// - `id`: Identificador de la transacción a cancelar.
+    /// - `ctx`: Contexto del actor.
     fn abort_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
         self.transactions_timeouts.remove(&id);
         if let Some((state, transaction)) = self.logs.remove(&id) {
@@ -214,6 +260,10 @@ impl<P: Actor> TwoPhaseCommit<P> {
 }
 
 impl<P: AHandler<SendMessage>> TwoPhaseCommit<P> {
+    /// Envía un paquete `VoteYesPacket` a un servidor.
+    /// Argumentos:
+    /// - `to`: Identificador del servidor al que se le envía el paquete.
+    /// - `id`: Identificador de la transacción asociada al paquete.
     fn send_vote_yes(&mut self, to: ServerId, id: TransactionId) {
         self.dispatcher.do_send(SendMessage {
             to,
@@ -221,6 +271,10 @@ impl<P: AHandler<SendMessage>> TwoPhaseCommit<P> {
         });
     }
 
+    /// Envía un paquete `VoteNoPacket` a un servidor.
+    /// Argumentos:
+    /// - `to`: Identificador del servidor al que se le envía el paquete.
+    /// - `id`: Identificador de la transacción asociada al paquete.
     fn send_vote_no(&mut self, to: ServerId, id: TransactionId) {
         self.dispatcher.do_send(SendMessage {
             to,
@@ -230,18 +284,27 @@ impl<P: AHandler<SendMessage>> TwoPhaseCommit<P> {
 }
 
 impl<P: AHandler<BroadcastMessage>> TwoPhaseCommit<P> {
+    /// Envía un paquete `RollbackPacket` a todos los servidores.
+    /// Argumentos:
+    /// - `id`: Identificador de la transacción asociada al paquete.
     fn broadcast_rollback(&mut self, id: TransactionId) {
         self.dispatcher.do_send(BroadcastMessage {
             packet: Packet::Commit(TPCommitPacket::Rollback(RollbackPacket { id })),
         });
     }
 
+    /// Envía un paquete `CommitPacket` a todos los servidores.
+    /// Argumentos:
+    /// - `id`: Identificador de la transacción asociada al paquete.
     fn broadcast_commit(&mut self, id: TransactionId) {
         self.dispatcher.do_send(BroadcastMessage {
             packet: Packet::Commit(TPCommitPacket::Commit(CommitPacket { id })),
         });
     }
 
+    /// Envía un paquete `PreparePacket` a todos los servidores.
+    /// Argumentos:
+    /// - `packet`: Paquete a enviar.
     fn broadcast_prepare(&mut self, packet: PreparePacket) {
         self.dispatcher.do_send(BroadcastMessage {
             packet: Packet::Commit(TPCommitPacket::Prepare(packet)),
