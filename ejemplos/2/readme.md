@@ -1,4 +1,4 @@
-# Ejemplo 1
+# Ejemplo 2
 
 En este ejemplo se van a abrir 3 servidores con 2 cafeteras:
 
