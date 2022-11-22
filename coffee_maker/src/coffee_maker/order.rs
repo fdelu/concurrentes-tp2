@@ -16,7 +16,7 @@ pub struct Coffee {
 /// Tipo de orden.
 pub enum Order {
     Sale(Coffee),
-    Recharge(Amount, UserId),
+    Recharge(UserId, Amount),
 }
 
 const ERR_UNKNOWN_TYPE: &str = "Unknown order type";
@@ -44,9 +44,9 @@ impl FromStr for Order {
                 if splitted.len() != 3 {
                     return Err(InvalidOrder(ERR_MISSING_FIELDS.to_string()));
                 }
-                let amount = Amount::from_str(splitted[1])?;
-                let user_id = splitted[2].parse()?;
-                Ok(Order::Recharge(amount, user_id))
+                let user_id = splitted[1].parse()?;
+                let amount = Amount::from_str(splitted[2])?;
+                Ok(Order::Recharge(user_id, amount))
             }
             _ => Err(InvalidOrder(ERR_UNKNOWN_TYPE.to_string())),
         }

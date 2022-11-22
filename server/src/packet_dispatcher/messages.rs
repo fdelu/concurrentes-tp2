@@ -1,7 +1,7 @@
+use super::error::PacketDispatcherResult;
 use crate::dist_mutex::packets::Timestamp;
 use crate::packet_dispatcher::packet::Packet;
 use crate::packet_dispatcher::TransactionId;
-use crate::two_phase_commit::PacketDispatcherResult;
 use crate::ServerId;
 use actix::prelude::*;
 use common::packet::UserId;

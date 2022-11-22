@@ -188,12 +188,12 @@ impl Handler<AbortOrder> for OrderProcessor {
     }
 }
 
-impl Handler<AddMoney> for OrderProcessor {
+impl Handler<AddPoints> for OrderProcessor {
     type Result = ResponseActFuture<Self, ()>;
 
-    /// Maneja los mensajes de tipo AddMoney.
+    /// Maneja los mensajes de tipo AddPoints.
     /// Envia al servidor para agregar dinero a la cuenta de un usuario.
-    fn handle(&mut self, msg: AddMoney, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddPoints, _ctx: &mut Self::Context) -> Self::Result {
         let transaction_id = self.add_tx_id(TransactionInfo::Completed);
         let server_socket = self.server_socket.clone();
 
@@ -205,9 +205,9 @@ impl Handler<AddMoney> for OrderProcessor {
                 .await;
 
             if let Err(e) = res.flatten() as Result<(), CoffeeError> {
-                error!("Error sending AddMoney: {}", e);
+                error!("Error sending AddPoints: {}", e);
             } else {
-                info!("Sent AddMoney with transaction id {}", transaction_id)
+                info!("Sent AddPoints with transaction id {}", transaction_id)
             }
         }
         .into_actor(self)

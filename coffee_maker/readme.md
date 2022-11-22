@@ -17,6 +17,69 @@ Para los mensajes locales, ver `src/coffee_maker/messages.rs` y `src/coffee_make
 5. Si al preparar el café no hay problemas, se envía un mensaje `CommitOrder` al servidor. Si falla, no se hace nada.
 6. El servidor, al recibir el paquete `CommitOrder`, consume los puntos bloqueados. Si tras un tiempo configurable no se recibió nada más de la cafetera, se liberan los puntos bloqueados.
 
+![Recieve Ready](../img/coffee_maker_ready.png)
+![Recieve Error](../img/coffee_maker_error.png)
+
 ### Recargas
 
-También se puede agregar puntos a las cuentas de los usuarios mediante el mensaje `AddMoney`. El procesador envia un mensaje al servidor con la cantidad y una id, y el servidor va a agregar el dinero (reintentándolo si esta desconectado en ese momento).
+También se puede agregar puntos a las cuentas de los usuarios mediante el mensaje `AddPoints`. El procesador envia un mensaje al servidor con la cantidad y una id, y el servidor va a agregar el dinero (reintentándolo si esta desconectado en ese momento).
+
+![Add money](../img/coffee_maker_add_money.png)
+
+## Configuración
+
+La cafetera recibe como parametro un archivo de configuración tipo JSON. Los parametros son.
+
+`order_from`: es el path del archivo del cual se van a leer las ordenes para esta cafetera. se le puede pasar "stdin" para que en cambio lea la consola.
+
+`server_ip`: es el ip y puerto del servidor local al cual se conectará esta cafetera.
+
+`logs`: dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
+
+`fail_probability`: es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
+
+Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config,js)
+
+## Formato de ordenes
+
+Las ordenes son lineas de texto con campos separados por comas. El primer campo define si la orden es una venta de café o una recarga de puntos. De ser una venta el campo será `sale` y de ser una recarga será `recharge`.
+
+### Venta
+
+El seguiente campo cuando se trata de una venta es el nombre del producto comprado, seguido por el id del usuario quien lo esta comprando y finalmente el precio de ese producto. Ejemplo:
+
+```
+sale,cafe 1,3,5
+```
+
+### Recarga
+
+Las recargas despues tienen el id del usuario quien esta haciendo la recarga de puntos y luego la cantidad de puntos que se estan recargando. Ejemplo:
+
+```
+recharge,7,20
+```
+
+### Archivo
+
+El archivo con las ordenes tiene que ser de tipo `csv` y tiene que tener una orden por línea. Para ejemplos ver la carpeta [orders](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/tree/main/coffee_maker/src/orders).
+
+## Comandos
+
+### Ejecución
+
+```
+cargo run [config file]
+```
+
+### Tests
+
+```
+cargo test
+```
+
+### Documentación
+
+```
+cargo doc --open
+```
