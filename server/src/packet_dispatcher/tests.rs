@@ -3,14 +3,14 @@ use crate::packet_dispatcher::messages::{BlockPointsMessage, DiscountMessage};
 use crate::packet_dispatcher::TransactionId;
 use crate::{Config, PacketDispatcher, ServerId};
 use actix::Addr;
-use common::log::{init_logger, LogConfig};
+use common::log::LogConfig;
 use common::packet::{CoffeeMakerId, UserId};
 use rand::Rng;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{error, info, Level};
+use tracing::{info, Level};
 
 fn random() -> u32 {
     rand::thread_rng().gen_range(0..1000000)
@@ -82,7 +82,7 @@ async fn discount(
 async fn test_two_dispatchers_one_discount() {
     let cfg_1 = make_config(1, 2);
     let cfg_2 = make_config(2, 2);
-    let _g = init_logger(&cfg_1.logs);
+    //let _g = init_logger(&cfg_1.logs);
 
     info!("Cfg1: {:#?}", cfg_1);
     info!("Cfg2: {:#?}", cfg_2);

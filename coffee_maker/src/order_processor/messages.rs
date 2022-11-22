@@ -1,20 +1,26 @@
 use actix::{Message, Recipient};
 
-use crate::coffee_maker::{Coffee, MakeCoffee};
+use crate::{
+    coffee_maker::{Coffee, MakeCoffee},
+    order_processor::TransactionResult,
+};
 use common::{
     packet::{Amount, TxId, UserId},
     AHandler,
 };
 
 pub trait OrderProcessorTrait:
-    AHandler<PrepareOrder> + AHandler<CommitOrder> + AHandler<AbortOrder> + AHandler<AddPoints>
+    AHandler<RedeemCoffee>
+    + AHandler<CommitRedemption>
+    + AHandler<AbortRedemption>
+    + AHandler<AddPoints>
 {
 }
 
 ///mensaje para comenzar a preparar una orden
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct PrepareOrder {
+#[rtype(result = "TransactionResult")]
+pub struct RedeemCoffee {
     pub coffee: Coffee,
     pub maker: Recipient<MakeCoffee>,
 }
@@ -22,7 +28,7 @@ pub struct PrepareOrder {
 ///mensaje para oficializar la orden preparada
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct CommitOrder {
+pub struct CommitRedemption {
     pub transaction_id: TxId,
     pub coffee: Coffee,
 }
@@ -30,7 +36,7 @@ pub struct CommitOrder {
 ///mensaje para abortar la orden que se estaba preparando
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct AbortOrder {
+pub struct AbortRedemption {
     pub transaction_id: TxId,
     pub coffee: Coffee,
 }

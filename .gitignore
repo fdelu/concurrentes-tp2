@@ -11,4 +11,5 @@ desktop.ini
 /target
 
 **/logs/*
+**/logs_test/*
 databases
