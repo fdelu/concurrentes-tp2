@@ -27,7 +27,7 @@ const TIME_UNTIL_DISCONNECT_POLITIC: Duration = Duration::from_millis(10);
 #[cfg(not(test))]
 const TIME_UNTIL_ERROR: Duration = Duration::from_secs(60);
 #[cfg(test)]
-const TIME_UNTIL_ERROR: Duration = Duration::from_millis(10);
+const TIME_UNTIL_ERROR: Duration = Duration::from_millis(100);
 
 /// Actor que implementa el algoritmo distribuido
 /// para la obtención de un mutex.

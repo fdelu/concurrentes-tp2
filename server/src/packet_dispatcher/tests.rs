@@ -225,7 +225,7 @@ async fn test_three_dispatchers_ten_discounts() {
         )
         .await;
     }
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_secs(10)).await;
     assert_databases_are_equal();
 }
 
