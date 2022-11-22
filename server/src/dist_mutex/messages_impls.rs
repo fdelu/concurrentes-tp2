@@ -176,9 +176,13 @@ where
 
         async move {
             let _guard = lock.lock().await;
-            if addr.send(AcquireMessage {}).await.is_err() {
-                return Err(MutexError::Timeout);
-            };
+            let acquire_r = addr.send(AcquireMessage).await;
+            if let Ok(Err(e)) = acquire_r {
+                return Err(e);
+            } else if let Err(e) = acquire_r {
+                return Err(Mailbox(e.to_string()));
+            }
+
             let r = (msg.action)().await;
             if addr.send(ReleaseMessage {}).await.is_err() {
                 return Err(MutexError::Timeout);

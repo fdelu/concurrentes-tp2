@@ -11,7 +11,7 @@ use std::future::Future;
 /// Si el mutex no está adquirido, no hace nada.
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct ReleaseMessage;
+pub(crate) struct ReleaseMessage;
 
 /// Mensaje para indicar que un servidor ha recibido el `RequestPacket`
 #[derive(Message)]
@@ -57,7 +57,7 @@ pub(crate) struct RequestMessage {
 /// el future se resuelve con un error.
 #[derive(Message)]
 #[rtype(result = "MutexResult<()>")]
-pub struct AcquireMessage;
+pub(crate) struct AcquireMessage;
 
 /// Ejecuta una función en exclusión mutua.
 /// El mensaje adquiere el mutex y luego ejecuta la función.
