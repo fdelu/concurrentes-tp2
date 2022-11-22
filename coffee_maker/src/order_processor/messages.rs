@@ -43,7 +43,7 @@ pub struct AbortRedemption {
 
 ///mensaje para agregar dinero a la cuenta de un usuario
 #[derive(Message)]
-#[rtype(result = "()")]
+#[rtype(result = "TransactionResult")]
 pub struct AddPoints {
     pub user_id: UserId,
     pub amount: Amount,

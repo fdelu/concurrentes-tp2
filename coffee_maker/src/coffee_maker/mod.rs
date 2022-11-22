@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::time;
 
 use actix::{
@@ -10,6 +11,7 @@ use tracing::{error, info, warn};
 
 use crate::order_processor::{
     AbortRedemption, AddPoints, CommitRedemption, OrderProcessorTrait, RedeemCoffee,
+    TransactionResult,
 };
 use common::packet::TxId;
 
@@ -18,7 +20,9 @@ mod order;
 
 pub use self::messages::*;
 pub use self::order::Coffee;
-use self::order::Order;
+pub use self::order::Order;
+
+const MAILBOX_CAPACITY: usize = 2048;
 
 ///Actor para atender ordenes de cafe y prepararlas
 pub struct CoffeeMaker<O: OrderProcessorTrait> {
@@ -32,25 +36,35 @@ impl<O: OrderProcessorTrait> Actor for CoffeeMaker<O> {
 
 impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     pub fn new(order_processor: Addr<O>, fail_probability: u8) -> Addr<Self> {
-        Self {
-            order_processor,
-            fail_probability,
-        }
-        .start()
+        Self::create(move |ctx| {
+            ctx.set_mailbox_capacity(MAILBOX_CAPACITY);
+            Self {
+                order_processor,
+                fail_probability,
+            }
+        })
     }
 
-    ///matchea el tipo de orden
-    fn process_order(&self, order: Order, ctx: &Context<Self>) {
-        match order {
-            Order::Sale(coffee) => {
-                self.order_processor.do_send(RedeemCoffee {
-                    coffee,
-                    maker: ctx.address().recipient(),
-                });
+    /// Matchea el tipo de orden
+    fn process_order(
+        &self,
+        order: Order,
+        ctx: &Context<Self>,
+    ) -> impl Future<Output = TransactionResult> {
+        let order_processor = self.order_processor.clone();
+        let me = ctx.address().recipient();
+        async move {
+            match order {
+                Order::Sale(coffee) => {
+                    order_processor
+                        .send(RedeemCoffee { coffee, maker: me })
+                        .await
+                }
+                Order::Recharge(user_id, amount) => {
+                    order_processor.send(AddPoints { amount, user_id }).await
+                }
             }
-            Order::Recharge(user_id, amount) => {
-                self.order_processor.do_send(AddPoints { amount, user_id });
-            }
+            .unwrap_or_else(TransactionResult::from)
         }
     }
 
@@ -78,18 +92,20 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
 }
 
 impl<O: OrderProcessorTrait> Handler<AddOrder> for CoffeeMaker<O> {
-    type Result = ();
+    type Result = ResponseActFuture<Self, TransactionResult>;
 
     /// Hadlea al recibir un mensaje de tipo AddOrder una nueva order.
     fn handle(&mut self, msg: AddOrder, ctx: &mut Self::Context) -> Self::Result {
-        self.process_order(msg.order, ctx);
+        self.process_order(msg.order, ctx)
+            .into_actor(self)
+            .boxed_local()
     }
 }
 
 impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrdersFrom<R>>
     for CoffeeMaker<O>
 {
-    type Result = ResponseActFuture<Self, ()>;
+    type Result = ResponseActFuture<Self, Vec<(Order, TransactionResult)>>;
 
     /// Handlea el mensaje de tipo ReadOrdersFrom<R> que le indica como recibir las ordenes
     /// de cafes.
@@ -98,14 +114,18 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
         let mut lines = reader.lines();
         let this = ctx.address();
         async move {
+            let mut futures = vec![];
             loop {
                 match lines.next_line().await {
-                    Ok(Some(line)) if line.is_empty() => {
-                        info!("Empty line received, stopping");
-                        break;
-                    }
                     Ok(Some(line)) => match line.parse::<Order>() {
-                        Ok(order) => this.do_send(AddOrder { order }),
+                        Ok(order) => {
+                            let r = this
+                                .send(AddOrder {
+                                    order: order.clone(),
+                                })
+                                .await;
+                            futures.push((order, r.unwrap_or_else(TransactionResult::from)));
+                        }
                         Err(e) => error!("Failed to parse order: {}", e),
                     },
                     Ok(None) => {
@@ -117,6 +137,7 @@ impl<O: OrderProcessorTrait, R: AsyncReadExt + Unpin + 'static> Handler<ReadOrde
                     }
                 }
             }
+            futures
         }
         .into_actor(self)
         .boxed_local()

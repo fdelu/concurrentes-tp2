@@ -3,9 +3,10 @@ use common::packet::TxId;
 use tokio::io::AsyncRead;
 
 use super::{order::Order, Coffee};
+use crate::order_processor::TransactionResult;
 
 #[derive(Message)]
-#[rtype(result = "()")]
+#[rtype(result = "Vec<(Order, TransactionResult)>")]
 pub struct ReadOrdersFrom<R: AsyncRead> {
     pub reader: R,
 }
@@ -18,7 +19,7 @@ pub struct MakeCoffee {
 }
 
 #[derive(Message)]
-#[rtype(result = "()")]
+#[rtype(result = "TransactionResult")]
 pub struct AddOrder {
     pub order: Order,
 }

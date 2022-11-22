@@ -176,13 +176,14 @@ impl<P: Actor> TwoPhaseCommit<P> {
         let file = File::create(format!(
             "databases/database_server_{}.json",
             self.server_id.to_number()
-        ))
-        .unwrap();
-        let mut writer = BufWriter::new(file);
-        let mut database: Vec<_> = self.database.iter().collect();
-        database.sort_by_key(|(id, _)| *id);
-        let database: Vec<_> = database.into_iter().map(|(_, data)| data.points).collect();
-        serde_json::to_writer_pretty(&mut writer, &database).unwrap();
+        ));
+        if let Ok(file) = file {
+            let mut writer = BufWriter::new(file);
+            let mut database: Vec<_> = self.database.iter().collect();
+            database.sort_by_key(|(id, _)| *id);
+            let database: Vec<_> = database.into_iter().map(|(_, data)| data.points).collect();
+            serde_json::to_writer_pretty(&mut writer, &database).unwrap();
+        }
     }
 
     fn abort_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {

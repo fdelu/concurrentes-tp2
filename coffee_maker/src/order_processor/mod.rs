@@ -16,7 +16,11 @@ use common::{
 };
 
 mod messages;
+mod result;
 pub use messages::*;
+pub use result::TransactionResult;
+
+const MAILBOX_CAPACITY: usize = 2048;
 
 impl OrderProcessorTrait for OrderProcessor {}
 
@@ -42,13 +46,6 @@ struct TransactionData {
     result_tx: oneshot::Sender<TransactionResult>,
 }
 
-#[derive(Debug, Clone)]
-/// Result of a transaction
-pub enum TransactionResult {
-    Completed,
-    Failed(CoffeeError),
-}
-
 impl Actor for OrderProcessor {
     type Context = Context<Self>;
 }
@@ -56,15 +53,18 @@ impl Actor for OrderProcessor {
 impl OrderProcessor {
     ///constructor de OrderProcessor, recibe la direccion del servidor
     pub fn new(server_addr: SocketAddr) -> Addr<Self> {
-        Self::create(move |ctx| Self {
-            server_socket: Socket::new(
-                ctx.address().recipient(),
-                ctx.address().recipient(),
-                server_addr,
-                Stream::New,
-            )
-            .start(),
-            transactions: HashMap::new(),
+        Self::create(move |ctx| {
+            ctx.set_mailbox_capacity(MAILBOX_CAPACITY);
+            Self {
+                server_socket: Socket::new(
+                    ctx.address().recipient(),
+                    ctx.address().recipient(),
+                    server_addr,
+                    Stream::New,
+                )
+                .start(),
+                transactions: HashMap::new(),
+            }
         })
     }
 
@@ -294,29 +294,36 @@ impl Handler<AbortRedemption> for OrderProcessor {
 }
 
 impl Handler<AddPoints> for OrderProcessor {
-    type Result = ResponseActFuture<Self, ()>;
+    type Result = ResponseActFuture<Self, TransactionResult>;
 
     /// Maneja los mensajes de tipo AddPoints.
     /// Envia al servidor para agregar dinero a la cuenta de un usuario.
     fn handle(&mut self, msg: AddPoints, _ctx: &mut Self::Context) -> Self::Result {
-        let transaction_id =
-            self.add_tx_id(TransactionInfo::Finished(TransactionResult::Completed));
         let server_socket = self.server_socket.clone();
 
+        let transaction_id =
+            self.add_tx_id(TransactionInfo::Finished(TransactionResult::Completed));
+
         async move {
-            let res = server_socket
+            server_socket
                 .send(SocketSend {
                     data: ClientPacket::AddPoints(msg.user_id, msg.amount, transaction_id),
                 })
-                .await;
-
-            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
-                error!("Error sending AddPoints: {}", e);
-            } else {
-                info!("Sent AddPoints with transaction id {}", transaction_id)
-            }
+                .await?
         }
         .into_actor(self)
+        .then(move |r, me, _| {
+            let result = if let Err(e) = r {
+                error!("Error sending AddPoints: {}", e);
+                TransactionResult::Failed(CoffeeError::from(e))
+            } else {
+                info!("Sent AddPoints with transaction id {}", transaction_id);
+                TransactionResult::Completed
+            };
+            me.transactions
+                .insert(transaction_id, TransactionInfo::Finished(result.clone()));
+            async move { result }.into_actor(me).boxed_local()
+        })
         .boxed_local()
     }
 }

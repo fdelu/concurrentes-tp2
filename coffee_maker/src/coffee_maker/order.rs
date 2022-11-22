@@ -1,4 +1,7 @@
-use std::str::FromStr;
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
 use common::{
     error::CoffeeError::{self, InvalidOrder},
@@ -14,6 +17,7 @@ pub struct Coffee {
 }
 
 /// Tipo de orden.
+#[derive(Clone, Debug)]
 pub enum Order {
     Sale(Coffee),
     Recharge(UserId, Amount),
@@ -49,6 +53,21 @@ impl FromStr for Order {
                 Ok(Order::Recharge(user_id, amount))
             }
             _ => Err(InvalidOrder(ERR_UNKNOWN_TYPE.to_string())),
+        }
+    }
+}
+
+impl Display for Order {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Order::Sale(coffee) => write!(
+                f,
+                "[SALE: coffee '{}', user '{}', '{}' points]",
+                coffee.name, coffee.user_id, coffee.cost
+            ),
+            Order::Recharge(user_id, amount) => {
+                write!(f, "[RECHARGE: user '{}', '{}' points]", user_id, amount)
+            }
         }
     }
 }
