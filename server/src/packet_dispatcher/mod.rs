@@ -29,6 +29,7 @@ pub mod messages;
 pub mod messages_impls;
 pub mod packet;
 #[cfg(test)]
+#[cfg(not(mocks))]
 mod tests;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);

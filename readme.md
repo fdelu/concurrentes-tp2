@@ -20,7 +20,7 @@ El servidor se comunica con los servidores de todos los otros locales para que c
 
 ## Común
 
-En común se guarda código útil para ambas aplicaciones. Su código se encuentra en la carpeta [common](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/tree/main/common) y su documentación en el [readme.md](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/common/readme.md) dentro de la carpeta.
+En común se guarda código útil para ambas aplicaciones. Su código se encuentra en la carpeta [common](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/tree/main/common).
 
 ## Ejemplos
 
