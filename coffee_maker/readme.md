@@ -38,7 +38,7 @@ La cafetera recibe como parametro un archivo de configuración tipo JSON. Los pa
 
 `fail_probability`: Es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
 
-Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config,js)
+Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config.json)
 
 ## Formato de ordenes
 
