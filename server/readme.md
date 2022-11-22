@@ -124,3 +124,6 @@ cargo test
 ```
 cargo doc --open
 ```
+
+## Diagramas de secuencia
+En [este link](https://lucid.app/lucidchart/fe4201b8-dd5d-42d6-b5bb-24b74f79abf9/edit?viewport_loc=-2140%2C-782%2C8308%2C4238%2CesH_8SpTMZLH&invitationId=inv_5c935c5e-dfe6-4482-9fbc-cc2dfc6181d1) se pueden encontrar algunos diagramas de secuencia del servidor.
