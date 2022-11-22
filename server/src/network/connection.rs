@@ -1,36 +1,46 @@
 use std::{future::Future, net::SocketAddr};
 
-use actix::{Actor, Addr};
+use actix::{Actor, Addr, Recipient};
+#[cfg(mocks)]
+use mockall::automock;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
 };
 
-#[cfg(test)]
+#[cfg(mocks)]
 use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
-use common::socket::{Packet, ReceivedPacket, SocketEnd, SocketError, SocketSend};
-#[cfg(not(test))]
+use common::socket::{PacketRecv, PacketSend, ReceivedPacket, SocketEnd, SocketError, SocketSend};
+#[cfg(not(mocks))]
 use common::socket::{Socket, Stream};
-use common::AHandler;
-#[cfg(test)]
-use mockall::automock;
 
-pub struct Connection<A: AHandler<SocketEnd>, P: Packet> {
-    socket: Addr<Socket<P>>,
+/// Maneja la conexión de un socket.
+pub struct Connection<S: PacketSend, R: PacketRecv> {
+    // Dirección del socket
+    socket: Addr<Socket<S, R>>,
+    // Task del timeout
     cancel_task: Option<JoinHandle<()>>,
-    end_handler: Addr<A>,
+    // Actor que recibe un mensaje cuando se cierra el socket
+    end_handler: Recipient<SocketEnd>,
+    // Dirección del socket
     addr: SocketAddr,
+    // Tiempo de timeout
+    timeout: Option<Duration>,
 }
 
-const CANCEL_TIMEOUT: Duration = Duration::from_secs(120);
-
-#[cfg_attr(test, automock)]
-impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
-    pub fn new<B: AHandler<ReceivedPacket<P>>>(
-        end_handler: Addr<A>,
-        received_handler: Addr<B>,
+#[cfg_attr(mocks, automock)]
+impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
+    /// Crea una nueva conexión. Argumentos:
+    /// - `stream`: [Stream] del [Socket].
+    /// - `end_handler`: Actor que recibe un mensaje cuando se cierra el socket.
+    /// - `addr`: Dirección a la cual conectarse.
+    /// - `timeout`: Tiempo de timeout.
+    pub fn new(
+        end_handler: Recipient<SocketEnd>,
+        received_handler: Recipient<ReceivedPacket<R>>,
         addr: SocketAddr,
         stream: Stream,
+        timeout: Option<Duration>,
     ) -> Self {
         let socket = Socket::new(received_handler, end_handler.clone(), addr, stream);
         let mut this = Connection {
@@ -38,6 +48,7 @@ impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
             cancel_task: None,
             end_handler,
             addr,
+            timeout,
         };
         this.restart_timeout();
         this
@@ -49,33 +60,37 @@ impl<A: AHandler<SocketEnd>, P: Packet> Connection<A, P> {
         }
     }
 
+    /// Reinicia el timer de timeout, si se configuró uno.
     pub fn restart_timeout(&mut self) {
-        self.cancel_timeout();
-        let end_handler = self.end_handler.clone();
-        let addr = self.addr;
-        self.cancel_task = Some(spawn(async move {
-            tokio::time::sleep(CANCEL_TIMEOUT).await;
-            end_handler.do_send(SocketEnd { addr });
-        }));
+        if let Some(timeout) = self.timeout {
+            self.cancel_timeout();
+            let end_handler = self.end_handler.clone();
+            let addr = self.addr;
+            self.cancel_task = Some(spawn(async move {
+                tokio::time::sleep(timeout).await;
+                end_handler.do_send(SocketEnd { addr });
+            }));
+        }
     }
 
-    pub fn send(&self, data: P) -> impl Future<Output = Result<(), SocketError>> {
+    /// Envia un paquete por el socket.
+    /// Nota: Esta función no es `async` sino que devuelve un [Future] manualmente
+    /// para que no mantenga una referencia a `self` durante la espera.
+    pub fn send(&self, data: S) -> impl Future<Output = Result<(), SocketError>> {
         let socket = self.socket.clone();
 
         async move { socket.send(SocketSend { data }).await? }
     }
 }
 
-#[cfg(test)]
+#[cfg(mocks)]
 pub mod test {
-    use common::socket::{Packet, SocketEnd};
-
-    use super::MockConnection as Connection;
-    use common::AHandler;
-    use mockall::lazy_static;
     use std::sync::{Mutex, MutexGuard};
 
-    use super::__mock_MockConnection;
+    use common::socket::{PacketRecv, PacketSend};
+    use mockall::lazy_static;
+
+    use super::{MockConnection as Connection, __mock_MockConnection};
 
     // ver https://github.com/asomers/mockall/blob/master/mockall/examples/synchronization.rs
     lazy_static! {
@@ -91,13 +106,13 @@ pub mod test {
 
     /// Guard de [connection_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard<A: AHandler<SocketEnd>, P: Packet> {
-        pub ctx: __mock_MockConnection::__new::Context<A, P>,
+    pub struct Guard<S: PacketSend, R: PacketRecv> {
+        pub ctx: __mock_MockConnection::__new::Context<S, R>,
         guard: MutexGuard<'static, ()>,
     }
 
     /// Función de utilidad para mockear la [Connection].
-    pub fn connection_new_context<A: AHandler<SocketEnd> + Send, P: Packet>() -> Guard<A, P> {
+    pub fn connection_new_context<S: PacketSend, R: PacketRecv>() -> Guard<S, R> {
         let m = get_lock(&MTX);
 
         let context = Connection::new_context();

@@ -1,8 +1,13 @@
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tracing::error;
 
 use super::{OnRead, SocketError, PACKET_SEP};
 
+/// Loop que se encarga de leer en el socket. Deserializa los
+/// paquetes con [serde_json] en el socket, separándolos con
+/// [PACKET_SEP]. Al leer un paquete, se llama a la función
+/// [OnRead] dada con el paquete deserializado.
 pub struct ReaderLoop<T: AsyncReadExt + Unpin, P: DeserializeOwned> {
     reader: BufReader<T>,
     on_read: OnRead<P>,
@@ -34,7 +39,7 @@ impl<T: AsyncReadExt + Unpin, P: DeserializeOwned> ReaderLoop<T, P> {
             match self.process_message(&mut buffer).await {
                 Ok(0) => return Ok(()),
                 Err(e) => {
-                    eprintln!("Error in ReaderLoop: {}", e);
+                    error!("Error in ReaderLoop: {}", e);
                     return Err(e);
                 }
                 _ => continue,

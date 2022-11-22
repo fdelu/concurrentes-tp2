@@ -1,77 +1,126 @@
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-
 use actix::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use common::AHandler;
+use common::packet::{CoffeeMakerId, TxId};
+use tracing::{debug, info, trace};
 
-use crate::dist_mutex::messages::ack::AckMessage;
-use crate::dist_mutex::messages::ok::OkMessage;
-use crate::dist_mutex::messages::request::RequestMessage;
+use crate::config::Config;
+use crate::dist_mutex::messages::AckMessage;
+use crate::dist_mutex::messages::OkMessage;
+use crate::dist_mutex::messages::RequestMessage;
 use crate::dist_mutex::packets::{get_timestamp, MutexPacket, ResourceId, Timestamp};
-use crate::dist_mutex::server_id::ServerId;
 use crate::dist_mutex::{DistMutex, MutexCreationTrait};
-use crate::network::messages::ReceivedPacket;
 use crate::network::{ConnectionHandler, SendPacket};
-use crate::packet_dispatcher::messages::broadcast::BroadcastMessage;
-use crate::packet_dispatcher::messages::prune::PruneMessage;
-use crate::packet_dispatcher::messages::send::SendMessage;
-use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket, SyncResponsePacket};
+use crate::packet_dispatcher::packet::{Packet, SyncRequestPacket};
+use crate::server_id::ServerId;
+use crate::two_phase_commit::packets::TPCommitPacket;
+use crate::two_phase_commit::TwoPhaseCommit;
+use messages::DieMessage;
+use messages::QueuePointsMessage;
+use messages::SendMessage;
+use messages::TryAddPointsMessage;
 
+pub mod error;
 pub mod messages;
+pub mod messages_impls;
 pub mod packet;
+#[cfg(test)]
+#[cfg(not(mocks))]
+mod tests;
 
-pub trait TCPActorTrait: AHandler<SendPacket<Packet>> {}
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
 
-impl<A: AHandler<ReceivedPacket<Packet>>> TCPActorTrait for ConnectionHandler<A, Packet> {}
-
-pub trait PacketDispatcherTrait:
-    AHandler<ReceivedPacket<Packet>>
-    + AHandler<BroadcastMessage>
-    + AHandler<PruneMessage>
-    + AHandler<SendMessage>
-{
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum TransactionId {
+    Discount(ServerId, CoffeeMakerId, TxId),
+    Add(ServerId, u32),
 }
 
-impl PacketDispatcherTrait for PacketDispatcher {}
-
-pub(crate) const SERVERS: [ServerId; 3] =
-    [ServerId { id: 0 }, ServerId { id: 1 }, ServerId { id: 2 }];
+impl Display for TransactionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransactionId::Discount(server_id, client_id, tx_id) => {
+                write!(f, "Discount({}, {}, {})", server_id, client_id, tx_id)
+            }
+            TransactionId::Add(server_id, id) => {
+                write!(f, "Add({}, {})", server_id, id)
+            }
+        }
+    }
+}
 
 pub struct PacketDispatcher {
     server_id: ServerId,
     mutexes: HashMap<ResourceId, Addr<DistMutex<Self>>>,
-    socket: Addr<ConnectionHandler<Self, Packet>>,
+    socket: Addr<ConnectionHandler<Packet, Packet>>,
     servers_last_seen: HashMap<ServerId, Option<Timestamp>>,
-    // TODO: Replace with a proper data structure containing
-    // TODO: every user and their amount of points
-    data: Vec<u32>,
+    two_phase_commit: Addr<TwoPhaseCommit<Self>>,
+    points_queue: Vec<QueuePointsMessage>,
+    points_ids_counter: u32,
+    config: Config,
 }
 
 impl Actor for PacketDispatcher {
     type Context = Context<Self>;
 }
 
+impl Supervised for PacketDispatcher {
+    fn restarting(&mut self, ctx: &mut Self::Context) {
+        info!("Restarting PacketDispatcher");
+        self.mutexes.values().for_each(|mutex| {
+            mutex.do_send(DieMessage);
+        });
+        self.initialize_add_points_loop(ctx);
+    }
+}
+
 impl PacketDispatcher {
-    pub fn new(my_id: ServerId) -> Addr<Self> {
-        let servers_last_seen = SERVERS
+    pub fn new(cfg: &Config) -> Addr<Self> {
+        Self::create(|ctx| Self::new_with_context(cfg, ctx))
+    }
+
+    pub fn new_with_context(cfg: &Config, ctx: &mut Context<Self>) -> Self {
+        let my_addr = SocketAddr::new(cfg.server_ip, cfg.server_port);
+        let my_id = ServerId::new(cfg.server_ip);
+        let servers_last_seen = cfg
+            .servers
             .iter()
             .filter(|&&server_id| server_id != my_id)
             .map(|&server_id| (server_id, None))
             .collect();
+        trace!("Initial servers: {:?}", servers_last_seen);
 
-        Self::create(|ctx| {
-            let socket = ConnectionHandler::new(ctx.address(), SocketAddr::from(my_id)).start();
-            let mut ret = Self {
-                server_id: my_id,
-                mutexes: HashMap::new(),
-                socket,
-                servers_last_seen,
-                data: vec![1, 2, 3, 4, 5, 6],
-            };
-            ret.send_sync_request(ctx);
-            ret
-        })
+        let socket = ConnectionHandler::new(
+            ctx.address().recipient(),
+            my_addr,
+            true,
+            Some(CONNECTION_TIMEOUT),
+        )
+        .start();
+        let two_phase_commit = TwoPhaseCommit::new(my_id, ctx.address(), cfg);
+
+        let mut ret = Self {
+            server_id: my_id,
+            mutexes: HashMap::new(),
+            socket,
+            servers_last_seen,
+            two_phase_commit,
+            points_queue: Vec::new(),
+            points_ids_counter: 0,
+            config: cfg.clone(),
+        };
+        ret.initialize_add_points_loop(ctx);
+        ret.send_sync_request(ctx);
+        ret
+    }
+
+    fn initialize_add_points_loop(&mut self, ctx: &mut Context<Self>) {
+        let interval = Duration::from_millis(self.config.add_points_interval_ms);
+        ctx.notify_later(TryAddPointsMessage, interval);
     }
 
     fn send_sync_request(&mut self, ctx: &mut Context<Self>) {
@@ -90,62 +139,59 @@ impl PacketDispatcher {
     fn handle_mutex(&mut self, from: ServerId, packet: MutexPacket, ctx: &mut Context<Self>) {
         match packet {
             MutexPacket::Request(request) => {
-                println!("Received request from {}", from);
+                debug!("Received request from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, request.id);
                 let message = RequestMessage::new(from, request);
-
-                mutex.try_send(message).unwrap();
+                mutex.do_send(message);
             }
             MutexPacket::Ack(ack) => {
+                debug!("Received ack from {}", from);
                 let mutex = self.get_or_create_mutex(ctx, ack.id);
-                let message = AckMessage::new(from, ack);
-                mutex.try_send(message).unwrap();
+                mutex.do_send(AckMessage { from });
             }
             MutexPacket::Ok(ok) => {
+                debug!("Received ok from {}", from);
                 let connected_servers = self.get_connected_servers();
                 let mutex = self.get_or_create_mutex(ctx, ok.id);
+                mutex.do_send(OkMessage {
+                    from,
+                    connected_servers,
+                });
+            }
+        };
+    }
 
-                let message = OkMessage::new(from, connected_servers, ok);
-                mutex.try_send(message).unwrap();
+    fn handle_commit(&mut self, from: ServerId, packet: TPCommitPacket, _ctx: &mut Context<Self>) {
+        match packet {
+            TPCommitPacket::Prepare(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
+            }
+            TPCommitPacket::Commit(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
+            }
+            TPCommitPacket::Rollback(packet) => {
+                self.two_phase_commit.do_send(packet.to_message());
+            }
+            TPCommitPacket::VoteYes(packet) => {
+                self.two_phase_commit
+                    .do_send(packet.to_message(from, self.get_connected_servers()));
+            }
+            TPCommitPacket::VoteNo(packet) => {
+                self.two_phase_commit.do_send(packet.to_message(from));
             }
         }
     }
 
-    fn handle_sync_request(
-        &mut self,
-        from: ServerId,
-        _packet: SyncRequestPacket,
-        ctx: &mut Context<Self>,
-    ) {
-        let packet = SyncResponsePacket {
-            data: self.data.clone(),
-        };
-        ctx.address()
-            .try_send(SendMessage {
-                to: from,
-                packet: Packet::SyncResponse(packet),
-            })
-            .unwrap();
-    }
-
-    fn handle_sync_response(
-        &mut self,
-        _from: ServerId,
-        packet: SyncResponsePacket,
-        _ctx: &mut Context<Self>,
-    ) {
-        // TODO: wait for all servers to respond and then update data based on the majority
-        self.data = packet.data;
-    }
-
     fn get_or_create_mutex(
         &mut self,
-        ctx: &mut Context<PacketDispatcher>,
+        ctx: &mut Context<Self>,
         id: ResourceId,
     ) -> &mut Addr<DistMutex<PacketDispatcher>> {
         let mutex = self.mutexes.entry(id).or_insert_with(|| {
-            println!("Creating mutex for {}", id);
-            DistMutex::new(self.server_id, id, ctx.address()).start()
+            info!("Creating mutex for Resource {}", id);
+            let server_id = self.server_id;
+            let addr = ctx.address();
+            Supervisor::start(move |_| DistMutex::new(server_id, id, addr))
         });
         mutex
     }
@@ -162,9 +208,9 @@ impl PacketDispatcher {
         &mut self,
         to: ServerId,
         data: Packet,
-    ) -> Request<ConnectionHandler<PacketDispatcher, Packet>, SendPacket<Packet>> {
+    ) -> Request<ConnectionHandler<Packet, Packet>, SendPacket<Packet>> {
         self.socket.send(SendPacket {
-            to: to.into(),
+            to: to.get_socket_addr(self.config.server_port),
             data,
         })
     }

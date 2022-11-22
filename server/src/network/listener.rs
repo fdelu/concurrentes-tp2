@@ -1,53 +1,73 @@
 use std::io;
 
-use actix::Addr;
-#[cfg(not(test))]
-use actix_rt::net::TcpListener;
-#[cfg(test)]
+use actix::Recipient;
+#[cfg(mocks)]
 use common::socket::test_util::MockTcpListener as TcpListener;
-use common::AHandler;
+#[cfg(not(mocks))]
+use tokio::net::TcpListener;
 use tokio::{
     net::ToSocketAddrs,
     task::{spawn, JoinHandle},
 };
+use tracing::{debug, error, trace};
 
 use super::AddStream;
 use common::socket::SocketError;
-#[cfg(test)]
+#[cfg(mocks)]
 use mockall::automock;
 
+/// Loop que acepta conexiones de un [TcpListener] y
+/// las envía como mensaje a un Actor dado.
 pub struct Listener {
     listener: TcpListener,
 }
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(mocks, automock)]
 impl Listener {
-    pub async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
+    /// Crea un nuevo Listener. Argumentos:
+    /// - `addr`: Dirección en la cual escuchar.
+    pub(crate) async fn bind<A: ToSocketAddrs + 'static>(addr: A) -> io::Result<Self> {
+        trace!("Binding listener...");
         let listener = TcpListener::bind(addr).await?;
+        trace!("Bound to {:?}", listener.local_addr());
         Ok(Self { listener })
     }
 
-    async fn add_connection<A: AHandler<AddStream>>(
+    async fn add_connection(
         listener: &mut TcpListener,
-        handler: &Addr<A>,
+        handler: &Recipient<AddStream>,
     ) -> Result<(), SocketError> {
         let (stream, addr) = listener.accept().await?;
+        trace!("Accepted connection from {}", addr);
         handler.send(AddStream { stream, addr }).await?;
         Ok(())
     }
 
-    pub(crate) fn run<A: AHandler<AddStream>>(mut self, add_handler: Addr<A>) -> JoinHandle<()> {
+    /// Inicia el loop de aceptar conexiones.
+    /// Argumentos:
+    /// - `handler`: Actor al cual enviar los [TcpStream](tokio::net::TcpStream).
+    pub(crate) fn run(mut self, add_handler: Recipient<AddStream>) -> JoinHandle<()> {
         spawn(async move {
+            debug!(
+                "Listening for connections ({:?})",
+                self.listener.local_addr()
+            );
             loop {
                 if let Err(e) = Self::add_connection(&mut self.listener, &add_handler).await {
-                    eprintln!("Error accepting connection: {e}");
+                    error!("Error accepting connection: {e}");
                 }
             }
         })
     }
 }
 
-#[cfg(test)]
+impl Drop for Listener {
+    fn drop(&mut self) {
+        debug!("Dropping listener");
+    }
+}
+
+#[cfg(mocks)]
 pub mod test {
     use super::{MockListener as Listener, __mock_MockListener};
     use mockall::lazy_static;
@@ -67,13 +87,13 @@ pub mod test {
 
     /// Guard de [listener_new_context]. Contiene el contexto del mock y el guard del mutex
     /// estático que impide que se inicialice el mock en varios tests a la vez.
-    pub struct Guard {
+    pub(crate) struct Guard {
         pub ctx: __mock_MockListener::__bind::Context,
         guard: MutexGuard<'static, ()>,
     }
 
     /// Función de utilidad para mockear el [Listener].
-    pub fn listener_new_context() -> Guard {
+    pub(crate) fn listener_new_context() -> Guard {
         let m = get_lock(&MTX);
 
         let context = Listener::bind_context();

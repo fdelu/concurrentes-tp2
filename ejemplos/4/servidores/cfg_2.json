@@ -1,0 +1,23 @@
+{
+    "server_ip": "127.0.0.2",
+    "server_port": 8080,
+    "client_port": 34255,
+    "servers": [
+        {
+            "ip": "127.0.0.1"
+        },
+        {
+            "ip": "127.0.0.2"
+        },
+        {
+            "ip": "127.0.0.3"
+        }
+    ],
+    "add_points_interval_ms": 500,
+    "database_dump_path": "servidores/databases",
+    "logs": {
+        "files_directory": "servidores/logs/2",
+        "file_log_level": "trace",
+        "stdout_log_level": "trace"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "order_from": "cafeteras/orders_3.csv",
+    "server_ip": "127.0.0.3:34255",
+    "logs": {
+        "files_directory": "cafeteras/logs/3",
+        "file_log_level": "trace",
+        "stdout_log_level": "info"
+    },
+    "fail_probability": 0
+}

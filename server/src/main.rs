@@ -1,72 +1,44 @@
-use std::net::SocketAddr;
-use tokio::time::sleep;
-use tokio::try_join;
+use actix::Supervisor;
+use common::error::{CoffeeError, FlattenResult};
+use common::log::init_logger;
+use tokio::signal;
+use tracing::info;
 
-use crate::dist_mutex::messages::public::acquire::AcquireMessage;
-use crate::dist_mutex::messages::public::release::ReleaseMessage;
-use crate::dist_mutex::packets::ResourceId;
-use crate::dist_mutex::server_id::ServerId;
-use crate::dist_mutex::{DistMutex, MutexCreationTrait};
+use crate::client_connections::ClientConnections;
+use crate::config::Config;
 use crate::network::Listen;
-use crate::packet_dispatcher::messages::add_mutex::AddMutexMessage;
-use crate::packet_dispatcher::{PacketDispatcher, SERVERS};
+use crate::packet_dispatcher::PacketDispatcher;
+use server_id::ServerId;
 
+/// Módulo de conexiones con clientes.
+pub mod client_connections;
+/// Módulo de configuración.
+mod config;
+/// Módulo de mutex distribuido.
 pub mod dist_mutex;
+/// Módulo de conexiones (otros servidores y clientes).
 mod network;
+/// Módulo de envío de paquetes.
 pub mod packet_dispatcher;
+/// Modulo de identificación de servidores.
+pub mod server_id;
+/// Módulo de commits en 2 fases.
+pub mod two_phase_commit;
 
 #[actix_rt::main]
 async fn main() {
-    let n: usize = std::env::var("N")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse()
-        .unwrap();
-    let dispatcher = PacketDispatcher::new(SERVERS[n]);
+    let config_path = std::env::args().nth(1).expect("No config file provided");
+    let cfg = Config::from_file(&config_path).await;
+    let _g = init_logger(&cfg.logs);
 
-    let addr: SocketAddr = SERVERS[n].into();
-    println!(
-        "I am server {} (addr: {}, {})",
-        n,
-        addr,
-        ServerId::from(addr)
-    );
+    let cfg_c = cfg.clone();
+    let dispatcher = Supervisor::start(move |ctx| PacketDispatcher::new_with_context(&cfg_c, ctx));
+    let clients = ClientConnections::new(&cfg, dispatcher);
 
-    dispatcher.try_send(Listen {}).unwrap();
+    (clients.send(Listen {}).await.flatten() as Result<(), CoffeeError>)
+        .expect("Failed to initialize server listener");
 
-    let resource_id_1 = 1;
-    let resource_id_2 = 2;
-
-    let mutex_addr_1 = dispatcher
-        .send(AddMutexMessage::new(resource_id_1))
-        .await
-        .unwrap();
-
-    let mutex_addr_2 = dispatcher
-        .send(AddMutexMessage::new(resource_id_2))
-        .await
-        .unwrap();
-
-    sleep(std::time::Duration::from_millis(5000)).await;
-
-    println!("Acquiring lock");
-    let f1 = mutex_addr_1.send(AcquireMessage::new());
-    let f2 = mutex_addr_2.send(AcquireMessage::new());
-    if try_join!(f1, f2).is_err() {
-        println!("Try join failed");
-    }
-
-    sleep(std::time::Duration::from_millis(5000)).await;
-
-    println!("Releasing lock");
-
-    let f1 = mutex_addr_1.send(ReleaseMessage {});
-    let f2 = mutex_addr_2.send(ReleaseMessage {});
-
-    if try_join!(f1, f2).is_err() {
-        println!("Try join failed");
-    }
-
-    println!("Done");
-
-    sleep(std::time::Duration::from_millis(50000)).await;
+    info!("Press Ctrl+C to stop execution");
+    signal::ctrl_c().await.expect("failed to listen for event");
+    actix_rt::System::current().stop();
 }

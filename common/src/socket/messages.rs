@@ -7,12 +7,14 @@ use super::SocketError;
 
 // Public messages
 
+/// Mensaje para enviar un paquete a través del [Socket](super::Socket).
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "Result<(), SocketError>")]
 pub struct SocketSend<T: Serialize> {
     pub data: T,
 }
 
+/// Mensaje que envía el [Socket](super::Socket) al recibir un paquete.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ReceivedPacket<T: DeserializeOwned> {
@@ -20,6 +22,7 @@ pub struct ReceivedPacket<T: DeserializeOwned> {
     pub addr: SocketAddr,
 }
 
+/// Mensaje que envía el [Socket](super::Socket) al desconectarse.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct SocketEnd {

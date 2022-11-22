@@ -1,10 +1,15 @@
 use serde::Serialize;
 use tokio::{io::AsyncWriteExt, sync::mpsc::UnboundedReceiver};
+use tracing::error;
 
 use super::SocketError;
 
 use super::{WriterSend, PACKET_SEP};
 
+/// Loop que se encarga de escribir en el socket. Recibe todos
+/// los paquetes a través de un [UnboundedReceiver] y los escribe
+/// serializados con [serde_json] en el socket, separándolos con
+/// [PACKET_SEP].
 pub struct WriterLoop<T: AsyncWriteExt + Unpin, P: Serialize> {
     writer: T,
     rx: UnboundedReceiver<WriterSend<P>>,
@@ -40,7 +45,7 @@ impl<T: AsyncWriteExt + Unpin, P: Serialize> WriterLoop<T, P> {
     pub async fn run(mut self) {
         loop {
             match self.process_message().await {
-                Err(e) => eprintln!("Error in WriterLoop from stream: {}", e),
+                Err(e) => error!("Error in WriterLoop from stream: {}", e),
                 Ok(false) => break,
                 _ => (),
             }
