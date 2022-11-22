@@ -78,7 +78,7 @@ impl ClientConnections {
         });
     }
 
-    /// Maneja los mensajes de tipo PrepareOrder que se reciben a traves del socket.
+    /// Maneja los mensajes de tipo RedeemCoffee que se reciben a traves del socket.
     /// Envia la orden al [PacketDispatcher] con el mensaje [BlockPointsMessage] y
     /// si sale bien envia un mensaje de tipo Ready a la cafetera, sino le envia
     /// un error.
@@ -113,7 +113,7 @@ impl ClientConnections {
             .boxed_local()
     }
 
-    /// Maneja los mensajes de tipo CommitOrder que se reciben a traves del socket.
+    /// Maneja los mensajes de tipo CommitRedemption que se reciben a traves del socket.
     /// Primero corrobora que la transaccion a commitear se haya preparado y de ser
     /// asi envia un [DiscountMessage] al [PacketDispatcher].
     fn commit_order(&mut self, tx_id: TxId, addr: SocketAddr) -> ResponseActFuture<Self, ()> {
@@ -140,7 +140,7 @@ impl ClientConnections {
         async {}.into_actor(self).boxed_local()
     }
 
-    /// Maneja los mensajes de tipo CommitOrder que se reciben a traves del socket.
+    /// Maneja los mensajes de tipo CommitRedemption que se reciben a traves del socket.
     /// Envia un mensaje tipo [QueuePointsMessage] al [PacketDispatcher].
     fn add_points(&mut self, user_id: UserId, amount: Amount) -> ResponseActFuture<Self, ()> {
         self.dispatcher_addr.do_send(QueuePointsMessage {
@@ -161,10 +161,10 @@ impl Handler<ReceivedPacket<ClientPacket>> for ClientConnections {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg.data {
-            ClientPacket::PrepareOrder(user_id, cost, tx_id) => {
+            ClientPacket::RedeemCoffee(user_id, cost, tx_id) => {
                 self.prepare_order(user_id, cost, tx_id, msg.addr)
             }
-            ClientPacket::CommitOrder(tx_id) => self.commit_order(tx_id, msg.addr),
+            ClientPacket::CommitRedemption(tx_id) => self.commit_order(tx_id, msg.addr),
             ClientPacket::AddPoints(user_id, amount, _) => self.add_points(user_id, amount),
         }
     }

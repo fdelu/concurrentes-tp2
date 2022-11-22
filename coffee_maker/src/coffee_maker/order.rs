@@ -6,7 +6,7 @@ use common::{
 };
 
 /// Orden de cafe
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Coffee {
     pub name: String,
     pub user_id: UserId,

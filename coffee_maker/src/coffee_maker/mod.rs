@@ -9,7 +9,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::order_processor::{
-    AbortOrder, AddPoints, CommitOrder, OrderProcessorTrait, PrepareOrder,
+    AbortRedemption, AddPoints, CommitRedemption, OrderProcessorTrait, RedeemCoffee,
 };
 use common::packet::TxId;
 
@@ -43,7 +43,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
     fn process_order(&self, order: Order, ctx: &Context<Self>) {
         match order {
             Order::Sale(coffee) => {
-                self.order_processor.do_send(PrepareOrder {
+                self.order_processor.do_send(RedeemCoffee {
                     coffee,
                     maker: ctx.address().recipient(),
                 });
@@ -61,7 +61,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
         sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
         if rng.gen_range(0..100) < fail_probability {
             warn!("Failed preparing coffee: {}", coffee.name);
-            processor.do_send(AbortOrder {
+            processor.do_send(AbortRedemption {
                 transaction_id: tx_id,
                 coffee,
             });
@@ -70,7 +70,7 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
 
         sleep(time::Duration::from_millis(rng.gen_range(0..100))).await;
         info!("Finished making coffee: {}", coffee.name);
-        processor.do_send(CommitOrder {
+        processor.do_send(CommitRedemption {
             transaction_id: tx_id,
             coffee,
         });
@@ -214,7 +214,7 @@ mod test {
     ) {
         println!("reading");
         match rx.recv().await.unwrap() {
-            ClientPacket::PrepareOrder(user_id, amount, tx_id) => {
+            ClientPacket::RedeemCoffee(user_id, amount, tx_id) => {
                 println!("recieved prepare");
                 if id != 0 {
                     assert_eq!(user_id, id);
@@ -225,7 +225,7 @@ mod test {
                 orders.push(tx_id);
                 required_messages.add_prepare();
             }
-            ClientPacket::CommitOrder(tx_id) => {
+            ClientPacket::CommitRedemption(tx_id) => {
                 let index = orders
                     .iter()
                     .position(|x| *x == tx_id)
@@ -382,8 +382,8 @@ mod test {
                 order_ready_server(
                     &mut rx,
                     &socket,
-                    100,
                     7,
+                    100,
                     &mut orders,
                     &mut required_messages,
                 )

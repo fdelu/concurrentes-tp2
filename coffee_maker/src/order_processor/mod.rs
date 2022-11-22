@@ -1,10 +1,11 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, future::Future, net::SocketAddr};
 
 use actix::{
     Actor, ActorFutureExt, Addr, AsyncContext, Context, Handler, Recipient, ResponseActFuture,
     System, WrapFuture,
 };
 use rand::Rng;
+use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 
 use crate::coffee_maker::{Coffee, MakeCoffee};
@@ -25,10 +26,27 @@ pub(crate) struct OrderProcessor {
     transactions: HashMap<TxId, TransactionInfo>,
 }
 
+#[derive(Debug)]
 /// Enum that holds the state of a transaction
 enum TransactionInfo {
-    PreparingCoffee(Coffee, Recipient<MakeCoffee>),
+    Preparing(TransactionData),
+    MakingCoffee(TransactionData),
+    Finished(TransactionResult),
+}
+
+#[derive(Debug)]
+/// Holds the data of a coffee in preparation
+struct TransactionData {
+    coffee: Coffee,
+    coffee_maker: Recipient<MakeCoffee>,
+    result_tx: oneshot::Sender<TransactionResult>,
+}
+
+#[derive(Debug, Clone)]
+/// Result of a transaction
+pub enum TransactionResult {
     Completed,
+    Failed(CoffeeError),
 }
 
 impl Actor for OrderProcessor {
@@ -63,128 +81,215 @@ impl OrderProcessor {
         tx_id
     }
 
-    /// Saca un identificador de transacción de los identificadores activos.
-    /// Si el identificador corresponde a un café en preparación, lo devuelve junto
-    /// con el actor que lo prepara.
-    fn remove_tx_id(&mut self, tx_id: TxId) -> Option<(Coffee, Recipient<MakeCoffee>)> {
-        let trx_info = self.transactions.remove(&tx_id);
-        match trx_info {
-            None => warn!(
-                "Got message from the server for unknown transaction: {}",
-                tx_id
-            ),
-            Some(TransactionInfo::Completed) => warn!(
-                "Got message from the server for already completed transaction: {}",
-                tx_id
-            ),
-            Some(TransactionInfo::PreparingCoffee(c, m)) => return Some((c, m)),
-        }
-        None
-    }
-
     /// Para cuando se recibio un mensaje ready del servidor.
     /// Le avisa a la cafetera que puede comenzar la preparacion del cafe.
     fn handle_ready(&mut self, tx_id: TxId) {
-        if let Some((coffee, maker)) = self.remove_tx_id(tx_id) {
-            maker.do_send(MakeCoffee { coffee, tx_id });
+        let status = self.transactions.remove(&tx_id);
+        if let Some(TransactionInfo::Preparing(data)) = status {
+            data.coffee_maker.do_send(MakeCoffee {
+                coffee: data.coffee.clone(),
+                tx_id,
+            });
+            self.transactions
+                .insert(tx_id, TransactionInfo::MakingCoffee(data));
+            return;
+        } else if let Some(s) = status {
+            warn!(
+                "Got Ready for transaction {} that is not being redeemed. Status: {:?}",
+                tx_id, s
+            );
+            self.transactions.insert(tx_id, s); // Re-insert the removed status
+            return;
         }
+        warn!("Got Ready for unknown transaction {}", tx_id);
     }
 
     /// Para cuando se recibio un mensaje insufficient del servidor.
     /// Imprime el error y descuntinua el identificador de transaccion.
     fn handle_insufficient(&mut self, tx_id: TxId) {
-        if let Some((coffee, _)) = self.remove_tx_id(tx_id) {
+        let status = self.transactions.remove(&tx_id);
+        if let Some(TransactionInfo::Preparing(data)) = status {
             info!(
                 "Couldn't make coffee {}: Insufficient funds\nTransaction ID: {}",
-                coffee.name, tx_id
+                data.coffee.name, tx_id
             );
-            self.transactions.insert(tx_id, TransactionInfo::Completed);
+            let result = TransactionResult::Failed(CoffeeError::new("Insufficient points"));
+            self.finish(tx_id, result, data.result_tx);
+            return;
+        } else if let Some(s) = status {
+            warn!(
+                "Got InsufficientPoints for transaction {} that is not being redeemed. Status: {:?}",
+                tx_id, s
+            );
+            self.transactions.insert(tx_id, s); // Re-insert the removed status
+            return;
         }
+        warn!("Got InsufficientPoints for unknown transaction {}", tx_id);
     }
 
     /// Para cuando se recibio un mensaje error del servidor.
     /// Imprime el error y descuntinua el identificador de transaccion.
     fn handle_server_error(&mut self, tx_id: TxId, error: CoffeeError) {
-        if let Some((coffee, _)) = self.remove_tx_id(tx_id) {
+        let status = self.transactions.remove(&tx_id);
+        if let Some(TransactionInfo::Preparing(data)) = status {
             error!(
                 "Couldn't make coffee {}: Server error ({})\nTransaction ID: {}",
-                coffee.name, error, tx_id
+                data.coffee.name, error, tx_id
             );
-            self.transactions.insert(tx_id, TransactionInfo::Completed);
+            let result = TransactionResult::Failed(CoffeeError::from(error));
+            self.finish(tx_id, result, data.result_tx);
+            return;
+        } else if let Some(s) = status {
+            warn!(
+                "Got Server Error for transaction {} that is not being redeemed. Status: {:?}",
+                tx_id, s
+            );
+            self.transactions.insert(tx_id, s); // Re-insert the removed status
+            return;
         }
+        warn!("Got Server Error for unknown transaction {}", tx_id);
+    }
+
+    /// Para cuando se recibe un mensaje de Redeem de la cafetera.
+    /// Envía el mensaje al servidor y devuelve el resultado final de la transacción
+    fn handle_redeem(
+        &self,
+        tx_id: TxId,
+        coffee: Coffee,
+        result_rx: oneshot::Receiver<TransactionResult>,
+    ) -> impl Future<Output = TransactionResult> {
+        let server_socket = self.server_socket.clone();
+
+        async move {
+            let res = server_socket
+                .send(SocketSend {
+                    data: ClientPacket::RedeemCoffee(coffee.user_id, coffee.cost, tx_id),
+                })
+                .await;
+            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
+                error!("Error sending RedeemCoffee: {}", e);
+                TransactionResult::Failed(CoffeeError::from(e))
+            } else {
+                info!("Sent RedeemCoffee with transaction id {}", tx_id);
+                result_rx
+                    .await
+                    .unwrap_or_else(|e| TransactionResult::Failed(CoffeeError::from(e)))
+            }
+        }
+    }
+
+    /// Para cuando se recibe un mensaje de CommitRedemption de la cafetera.
+    /// Envía el mensaje al servidor y envía por result_tx el resultado final,
+    /// devolviéndolo
+    fn handle_commit(
+        &self,
+        tx_id: TxId,
+        result_tx: oneshot::Sender<TransactionResult>,
+    ) -> ResponseActFuture<Self, ()> {
+        let server_socket = self.server_socket.clone();
+        async move {
+            let res = server_socket
+                .send(SocketSend {
+                    data: ClientPacket::CommitRedemption(tx_id),
+                })
+                .await;
+            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
+                error!("Error sending CommitRedemption: {}", e);
+                TransactionResult::Failed(CoffeeError::from(e))
+            } else {
+                info!("Sent CommitRedemption with transaction id {}", tx_id);
+                TransactionResult::Completed
+            }
+        }
+        .into_actor(self)
+        .then(move |r, this, _| {
+            this.finish(tx_id, r, result_tx);
+            async {}.into_actor(this).boxed_local()
+        })
+        .boxed_local()
+    }
+
+    /// Marca una transacción como terminada, enviando el resultado por el sender
+    fn finish(
+        &mut self,
+        tx_id: TxId,
+        result: TransactionResult,
+        sender: oneshot::Sender<TransactionResult>,
+    ) {
+        let _ = sender.send(result.clone());
+        self.transactions
+            .insert(tx_id, TransactionInfo::Finished(result));
     }
 }
 
-impl Handler<PrepareOrder> for OrderProcessor {
-    type Result = ResponseActFuture<Self, ()>;
+impl Handler<RedeemCoffee> for OrderProcessor {
+    type Result = ResponseActFuture<Self, TransactionResult>;
 
-    /// Maneja los mensajes de tipo PrepareOrder.
-    /// Le envia al servidor la orden.
-    fn handle(&mut self, msg: PrepareOrder, _ctx: &mut Self::Context) -> Self::Result {
+    /// Maneja los mensajes de tipo RedeemCoffee.
+    /// Le envia al servidor la solicitud de canje de puntos por café.
+    fn handle(&mut self, msg: RedeemCoffee, _ctx: &mut Self::Context) -> Self::Result {
         let coffee = msg.coffee.clone();
-        let transaction_id =
-            self.add_tx_id(TransactionInfo::PreparingCoffee(msg.coffee, msg.maker));
+        let (result_tx, result_rx) = oneshot::channel();
+        let transaction_id = self.add_tx_id(TransactionInfo::Preparing(TransactionData {
+            coffee: msg.coffee,
+            coffee_maker: msg.maker,
+            result_tx,
+        }));
         info!(
             "Assigned transaction id {} to coffee {}",
             transaction_id, coffee.name
         );
-        let server_socket = self.server_socket.clone();
-        async move {
-            let res = server_socket
-                .send(SocketSend {
-                    data: ClientPacket::PrepareOrder(coffee.user_id, coffee.cost, transaction_id),
-                })
-                .await;
-            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
-                error!("Error sending PrepareOrder: {}", e);
-            } else {
-                info!("Sent PrepareOrder with transaction id {}", transaction_id);
-            }
-        }
-        .into_actor(self)
-        .boxed_local()
+
+        self.handle_redeem(transaction_id, coffee, result_rx)
+            .into_actor(self)
+            .boxed_local()
     }
 }
 
-impl Handler<CommitOrder> for OrderProcessor {
+impl Handler<CommitRedemption> for OrderProcessor {
     type Result = ResponseActFuture<Self, ()>;
 
-    /// Maneja los mensajes de tipo CommitOrder.
-    /// Envia al servidor para conretar la orden.
-    fn handle(&mut self, msg: CommitOrder, _ctx: &mut Self::Context) -> Self::Result {
-        let server_socket = self.server_socket.clone();
-        self.transactions
-            .insert(msg.transaction_id, TransactionInfo::Completed);
-        async move {
-            let res = server_socket
-                .send(SocketSend {
-                    data: ClientPacket::CommitOrder(msg.transaction_id),
-                })
-                .await;
-            if let Err(e) = res.flatten() as Result<(), CoffeeError> {
-                error!("Error sending CommitOrder: {}", e);
-            } else {
-                info!(
-                    "Sent CommitOrder with transaction id {}",
-                    msg.transaction_id
-                )
-            }
+    /// Maneja los mensajes de tipo CommitRedemption.
+    /// Envia al servidor para concretar el canje.
+    fn handle(&mut self, msg: CommitRedemption, _ctx: &mut Self::Context) -> Self::Result {
+        let status = self.transactions.remove(&msg.transaction_id);
+        if let Some(TransactionInfo::MakingCoffee(data)) = status {
+            return self.handle_commit(msg.transaction_id, data.result_tx);
+        } else if let Some(s) = status {
+            warn!(
+                "Got CommitRedemption for transaction {} that is not in the making. Status: {:?}",
+                msg.transaction_id, s
+            );
+            self.transactions.insert(msg.transaction_id, s); // Re-insert the removed status
+        } else {
+            warn!(
+                "Got CommitRedemption for unknown transaction {}",
+                msg.transaction_id
+            );
         }
-        .into_actor(self)
-        .boxed_local()
+
+        async {}.into_actor(self).boxed_local()
     }
 }
 
-impl Handler<AbortOrder> for OrderProcessor {
+impl Handler<AbortRedemption> for OrderProcessor {
     type Result = ();
 
-    /// Maneja los mensajes de tipo AbortOrder.
-    /// Envia al servidor para abortar la orden.
-    /// Esta funcion esta fuera de uso.
-    fn handle(&mut self, msg: AbortOrder, _ctx: &mut Self::Context) {
-        self.transactions
-            .insert(msg.transaction_id, TransactionInfo::Completed);
-        warn!("Aborting order with transaction id {}", msg.transaction_id)
+    /// Maneja los mensajes de tipo AbortRedemption.
+    /// Envia al servidor para abortar canjeo del café.
+    fn handle(&mut self, msg: AbortRedemption, _ctx: &mut Self::Context) {
+        let status = self.transactions.remove(&msg.transaction_id);
+        if let Some(TransactionInfo::MakingCoffee(data)) = status {
+            warn!("Aborting order with transaction id {}", msg.transaction_id);
+            let result =
+                TransactionResult::Failed(CoffeeError::new("Order aborted: Coffee maker failed"));
+            self.finish(msg.transaction_id, result, data.result_tx);
+            return;
+        }
+        warn!(
+            "Got AbortRedemption for transaction {} that is not in the making. Status: {:?}",
+            msg.transaction_id, status
+        );
     }
 }
 
@@ -194,7 +299,8 @@ impl Handler<AddPoints> for OrderProcessor {
     /// Maneja los mensajes de tipo AddPoints.
     /// Envia al servidor para agregar dinero a la cuenta de un usuario.
     fn handle(&mut self, msg: AddPoints, _ctx: &mut Self::Context) -> Self::Result {
-        let transaction_id = self.add_tx_id(TransactionInfo::Completed);
+        let transaction_id =
+            self.add_tx_id(TransactionInfo::Finished(TransactionResult::Completed));
         let server_socket = self.server_socket.clone();
 
         async move {
@@ -228,7 +334,7 @@ impl Handler<SocketEnd> for OrderProcessor {
 impl Handler<ReceivedPacket<ServerPacket>> for OrderProcessor {
     type Result = ();
 
-    /// Recive los mensajes del servidor y los procesa.
+    /// Recibe los mensajes del servidor y los procesa.
     fn handle(
         &mut self,
         msg: ReceivedPacket<ServerPacket>,
@@ -237,7 +343,7 @@ impl Handler<ReceivedPacket<ServerPacket>> for OrderProcessor {
         match msg.data {
             ServerPacket::Ready(tx_id) => self.handle_ready(tx_id),
             ServerPacket::Insufficient(tx_id) => self.handle_insufficient(tx_id),
-            ServerPacket::ServerErrror(tx_id, e) => self.handle_server_error(tx_id, e),
+            ServerPacket::ServerError(tx_id, e) => self.handle_server_error(tx_id, e),
         }
     }
 }

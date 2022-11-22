@@ -15,8 +15,8 @@ pub type CoffeeMakerId = SocketAddr;
 /// Paquetes que envía la cafetera al servidor.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum ClientPacket {
-    PrepareOrder(UserId, Amount, TxId),
-    CommitOrder(TxId),
+    RedeemCoffee(UserId, Amount, TxId),
+    CommitRedemption(TxId),
     AddPoints(UserId, Amount, TxId),
 }
 
