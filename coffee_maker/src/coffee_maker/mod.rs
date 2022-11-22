@@ -382,8 +382,8 @@ mod test {
                 order_ready_server(
                     &mut rx,
                     &socket,
-                    100,
                     7,
+                    100,
                     &mut orders,
                     &mut required_messages,
                 )
