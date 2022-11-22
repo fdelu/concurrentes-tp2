@@ -34,7 +34,7 @@ Este ejemplo demuestra una cafetera que se conecta despues de que la red ya haya
 [RECHARGE: user '25', '10' points]: Completed
 ```
 
-### Cafetera 2
+### Cafetera 3
 
 ```
 [SALE: coffee 'cafe 5', user '3', '100' points]: Failed: InsufficientPoints
