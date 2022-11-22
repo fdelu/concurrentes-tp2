@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::server_id::ServerId;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub server_ip: IpAddr,
     pub servers: Vec<ServerId>,
