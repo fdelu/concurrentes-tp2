@@ -38,6 +38,9 @@ La cafetera recibe como parametro un archivo de configuración tipo JSON. Los pa
 
 `fail_probability`: es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
 
+
+Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config,js)
+
 ## Formato de ordenes
 
 Las ordenes son lineas de texto con campos separados por comas. El primer campo define si la orden es una venta de café o una recarga de puntos. De ser una venta el campo será `sale` y de ser una recarga será `recharge`.
