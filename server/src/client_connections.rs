@@ -165,9 +165,7 @@ impl Handler<ReceivedPacket<ClientPacket>> for ClientConnections {
                 self.prepare_order(user_id, cost, tx_id, msg.addr)
             }
             ClientPacket::CommitOrder(tx_id) => self.commit_order(tx_id, msg.addr),
-            ClientPacket::AddPoints(amount, user_id, _) => {
-                self.add_points(user_id, amount) //TODO: check where this data is crossed
-            }
+            ClientPacket::AddPoints(user_id, amount, _) => self.add_points(user_id, amount),
         }
     }
 }

@@ -9,7 +9,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::order_processor::{
-    AbortOrder, AddMoney, CommitOrder, OrderProcessorTrait, PrepareOrder,
+    AbortOrder, AddPoints, CommitOrder, OrderProcessorTrait, PrepareOrder,
 };
 use common::packet::TxId;
 
@@ -48,8 +48,8 @@ impl<O: OrderProcessorTrait> CoffeeMaker<O> {
                     maker: ctx.address().recipient(),
                 });
             }
-            Order::Recharge(amount, user_id) => {
-                self.order_processor.do_send(AddMoney { amount, user_id });
+            Order::Recharge(user_id, amount) => {
+                self.order_processor.do_send(AddPoints { amount, user_id });
             }
         }
     }

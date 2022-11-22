@@ -7,7 +7,7 @@ use common::{
 };
 
 pub trait OrderProcessorTrait:
-    AHandler<PrepareOrder> + AHandler<CommitOrder> + AHandler<AbortOrder> + AHandler<AddMoney>
+    AHandler<PrepareOrder> + AHandler<CommitOrder> + AHandler<AbortOrder> + AHandler<AddPoints>
 {
 }
 
@@ -38,7 +38,7 @@ pub struct AbortOrder {
 ///mensaje para agregar dinero a la cuenta de un usuario
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct AddMoney {
+pub struct AddPoints {
     pub user_id: UserId,
     pub amount: Amount,
 }

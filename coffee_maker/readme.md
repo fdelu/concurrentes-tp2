@@ -22,7 +22,7 @@ Para los mensajes locales, ver `src/coffee_maker/messages.rs` y `src/coffee_make
 
 ### Recargas
 
-También se puede agregar puntos a las cuentas de los usuarios mediante el mensaje `AddMoney`. El procesador envia un mensaje al servidor con la cantidad y una id, y el servidor va a agregar el dinero (reintentándolo si esta desconectado en ese momento).
+También se puede agregar puntos a las cuentas de los usuarios mediante el mensaje `AddPoints`. El procesador envia un mensaje al servidor con la cantidad y una id, y el servidor va a agregar el dinero (reintentándolo si esta desconectado en ese momento).
 
 ![Add money](../img/coffee_maker_add_money.png)
 
@@ -37,7 +37,6 @@ La cafetera recibe como parametro un archivo de configuración tipo JSON. Los pa
 `logs`: dentro se pueden definir donde ira el archivo que guarde los logs, en nivel de logs de este archivo y el nivel de logs de los mostrados por consola.
 
 `fail_probability`: es la probabilidad de que la cafetera no logre preparar el café. Es un número del 0 al 100.
-
 
 Para un ejemplo ver [config.js](https://github.com/concurrentes-fiuba/2022-2c-tp2-rostov/blob/main/coffee_maker/config,js)
 
@@ -84,5 +83,3 @@ cargo test
 ```
 cargo doc --open
 ```
-
-
