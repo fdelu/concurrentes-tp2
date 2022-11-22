@@ -6,25 +6,25 @@ use actix::{
     WrapFuture,
 };
 use actix_rt::task::JoinHandle;
-
-use mockall_double::double;
 use tracing::{debug, info, trace, warn};
 
 mod connection;
 mod listener;
 mod messages;
 
-#[double]
-use self::connection::Connection;
-#[double]
-use self::listener::Listener;
 pub use self::messages::*;
-#[cfg(test)]
-use common::socket::test_util::MockStream as Stream;
 pub use common::socket::ReceivedPacket;
-#[cfg(not(test))]
-use common::socket::Stream;
 use common::socket::{PacketRecv, PacketSend, SocketEnd, SocketError};
+#[cfg(not(mocks))]
+use {
+    self::{connection::Connection, listener::Listener},
+    common::socket::Stream,
+};
+#[cfg(mocks)]
+use {
+    self::{connection::MockConnection as Connection, listener::MockListener as Listener},
+    common::socket::test_util::MockStream as Stream,
+};
 
 pub trait Packet: PacketSend + PacketRecv {}
 impl<T: PacketSend + PacketRecv> Packet for T {}
@@ -187,7 +187,7 @@ impl<S: PacketSend, R: PacketRecv> Handler<SocketEnd> for ConnectionHandler<S, R
     }
 }
 
-#[cfg(test)]
+#[cfg(mocks)]
 mod tests {
     use actix::{Actor, Addr, Context, Handler, System};
     use mockall::predicate::{eq, function};

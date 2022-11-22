@@ -9,7 +9,6 @@ edition = "2021"
 actix = "0.13.0"
 actix-rt = "2.7.0"
 tokio = { version="1.21.2", features = ["io-std"] }
-mockall_double = "0.3.0"
 async-trait = "0.1.51"
 rand = "0.8.4"
 serde = { version = "1.0", features = ["derive"] }
@@ -21,5 +20,7 @@ tracing = "0.1.29"
 [dev-dependencies]
 tokio-test = "0.4.2"
 tokio = { version = "*", features = ["macros", "io-util"] }
+
+[target.'cfg(mocks)'.dependencies]
 mockall = "0.11.3"
 common = { path = "../common", features = ["socket_test"] }
