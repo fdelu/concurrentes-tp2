@@ -27,6 +27,8 @@ use messages::TryAddPointsMessage;
 pub mod messages;
 pub mod messages_impls;
 pub mod packet;
+#[cfg(test)]
+mod tests;
 pub mod error;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -99,7 +101,7 @@ impl PacketDispatcher {
             Some(CONNECTION_TIMEOUT),
         )
         .start();
-        let two_phase_commit = TwoPhaseCommit::new(ctx.address());
+        let two_phase_commit = TwoPhaseCommit::new(my_id,ctx.address());
         let mutexes = make_initial_database()
             .iter()
             .map(|(&client_id, _)| {

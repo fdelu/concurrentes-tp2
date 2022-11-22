@@ -14,13 +14,13 @@ use tracing_subscriber::{
 #[derive(Deserialize, Debug, Clone)]
 pub struct LogConfig {
     /// Directorio donde se guardan los archivos de log
-    files_directory: String,
+    pub files_directory: String,
     /// Nivel de log para archivos
     #[serde_as(as = "DisplayFromStr")]
-    file_log_level: Level,
+    pub file_log_level: Level,
     /// Nivel de log para stdout
     #[serde_as(as = "DisplayFromStr")]
-    stdout_log_level: Level,
+    pub stdout_log_level: Level,
 }
 
 pub struct LogGuard(WorkerGuard, WorkerGuard);

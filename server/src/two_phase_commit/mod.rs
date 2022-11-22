@@ -1,6 +1,8 @@
 use core::fmt;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::BufWriter;
 use std::time::Duration;
 
 use actix::prelude::*;
@@ -51,6 +53,7 @@ pub fn make_initial_database() -> HashMap<UserId, UserData> {
 }
 
 pub struct TwoPhaseCommit<P: Actor> {
+    server_id: ServerId,
     logs: HashMap<TransactionId, (TransactionState, Transaction)>,
     coordinator_timeouts: HashMap<TransactionId, oneshot::Sender<bool>>,
     transactions_timeouts: HashMap<TransactionId, SpawnHandle>,
@@ -79,13 +82,14 @@ pub enum CommitError {
 pub type CommitResult<T> = Result<T, CommitError>;
 
 impl<P: Actor> TwoPhaseCommit<P> {
-    pub fn new(dispatcher: Addr<P>) -> Addr<Self> {
+    pub fn new(server_id: ServerId, dispatcher: Addr<P>) -> Addr<Self> {
         let logs = HashMap::new();
         Self::create(|ctx| {
             ctx.run_interval(Duration::from_secs(10), |me, _| {
                 trace!("Database: {:#?}", me.database);
             });
             Self {
+                server_id,
                 logs,
                 coordinator_timeouts: HashMap::new(),
                 transactions_timeouts: HashMap::new(),
@@ -163,8 +167,22 @@ impl<P: Actor> TwoPhaseCommit<P> {
         if let Some(h) = self.transactions_timeouts.remove(&id) {
             ctx.cancel_future(h);
         };
+        self.dump_database();
+
         self.database_last_update = get_timestamp();
         self.logs.get_mut(&id).unwrap().0 = TransactionState::Commit;
+    }
+
+    fn dump_database(&mut self) {
+        let file = File::create(format!("databases/database_server_{}.json", self.server_id.to_number())).unwrap();
+        let mut writer = BufWriter::new(file);
+        let mut database: Vec<_> = self.database.iter().collect();
+        database.sort_by_key(|(id, _)| *id);
+        let database: Vec<_> = database
+            .into_iter()
+            .map(|(_, data)| data.points)
+            .collect();
+        serde_json::to_writer_pretty(&mut writer, &database).unwrap();
     }
 
     fn abort_transaction(&mut self, id: TransactionId, ctx: &mut Context<Self>) {
