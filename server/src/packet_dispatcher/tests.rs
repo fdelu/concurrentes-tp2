@@ -6,6 +6,7 @@ use actix::Addr;
 use common::log::LogConfig;
 use common::packet::{CoffeeMakerId, UserId};
 use rand::Rng;
+use serial_test::serial;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
@@ -78,22 +79,55 @@ async fn discount(
         .unwrap();
 }
 
+// Lee todos los archivos de la carpeta `databases` y realiza un assert de que
+// todos los archivos tienen el mismo contenido.
+fn assert_databases_are_equal() {
+    let mut files = std::fs::read_dir("databases").unwrap();
+    let first_file = files.next().unwrap().unwrap();
+    let first_file_content = std::fs::read(first_file.path()).unwrap();
+    for file in files {
+        let file = file.unwrap();
+        let file_content = std::fs::read(file.path()).unwrap();
+        assert_eq!(first_file_content, file_content);
+    }
+}
+
+// Elimina todos los archivos que comiencen con `database_server` en la carpeta
+// `databases`.
+// Si la carpeta no existe, no hace nada.
+fn clean_database_directory() {
+    if let Ok(files) = std::fs::read_dir("databases") {
+        for file in files {
+            let file = file.unwrap();
+            if file
+                .file_name()
+                .to_str()
+                .unwrap()
+                .starts_with("database_server")
+            {
+                std::fs::remove_file(file.path()).unwrap();
+            }
+        }
+    }
+}
+
 #[actix_rt::test]
+#[serial]
 async fn test_two_dispatchers_one_discount() {
+    clean_database_directory();
+
     let cfg_1 = make_config(1, 2);
     let cfg_2 = make_config(2, 2);
-    //let _g = init_logger(&cfg_1.logs);
 
     info!("Cfg1: {:#?}", cfg_1);
     info!("Cfg2: {:#?}", cfg_2);
 
     let dispatcher_1 = make_packet_dispatcher(&cfg_1);
     dispatcher_1.do_send(Listen {});
-    sleep(Duration::from_secs(10)).await;
     let dispatcher_2 = make_packet_dispatcher(&cfg_2);
     dispatcher_2.do_send(Listen {});
-    sleep(Duration::from_secs(10)).await;
     let user_id = 456;
+    sleep(Duration::from_millis(100)).await;
     discount(
         make_server_id(1),
         make_coffee_maker_id(123),
@@ -102,6 +136,134 @@ async fn test_two_dispatchers_one_discount() {
         10,
     )
     .await;
-    sleep(Duration::from_secs(100)).await;
-    assert_eq!(true, false);
+    sleep(Duration::from_millis(100)).await;
+    assert_databases_are_equal();
+}
+
+#[actix_rt::test]
+#[serial]
+async fn test_two_dispatchers_two_discounts() {
+    clean_database_directory();
+
+    let cfg_1 = make_config(1, 2);
+    let cfg_2 = make_config(2, 2);
+
+    info!("Cfg1: {:#?}", cfg_1);
+    info!("Cfg2: {:#?}", cfg_2);
+
+    let dispatcher_1 = make_packet_dispatcher(&cfg_1);
+    dispatcher_1.do_send(Listen {});
+    let dispatcher_2 = make_packet_dispatcher(&cfg_2);
+    dispatcher_2.do_send(Listen {});
+    let user_id = 456;
+    sleep(Duration::from_millis(100)).await;
+    discount(
+        make_server_id(1),
+        make_coffee_maker_id(123),
+        dispatcher_1,
+        user_id,
+        10,
+    )
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    discount(
+        make_server_id(2),
+        make_coffee_maker_id(123),
+        dispatcher_2,
+        user_id,
+        10,
+    )
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    assert_databases_are_equal();
+}
+
+#[actix_rt::test]
+#[serial]
+async fn test_three_dispatchers_ten_discounts() {
+    clean_database_directory();
+
+    let cfg_1 = make_config(1, 3);
+    let cfg_2 = make_config(2, 3);
+    let cfg_3 = make_config(3, 3);
+
+    info!("Cfg1: {:#?}", cfg_1);
+    info!("Cfg2: {:#?}", cfg_2);
+    info!("Cfg3: {:#?}", cfg_3);
+
+    let dispatcher_1 = make_packet_dispatcher(&cfg_1);
+    dispatcher_1.do_send(Listen {});
+    let dispatcher_2 = make_packet_dispatcher(&cfg_2);
+    dispatcher_2.do_send(Listen {});
+    let dispatcher_3 = make_packet_dispatcher(&cfg_3);
+    dispatcher_3.do_send(Listen {});
+    let user_id = 456;
+    sleep(Duration::from_millis(100)).await;
+    for _ in 0..10 {
+        discount(
+            make_server_id(1),
+            make_coffee_maker_id(123),
+            dispatcher_1.clone(),
+            user_id,
+            3,
+        )
+        .await;
+        discount(
+            make_server_id(2),
+            make_coffee_maker_id(123),
+            dispatcher_2.clone(),
+            user_id,
+            3,
+        )
+        .await;
+        discount(
+            make_server_id(3),
+            make_coffee_maker_id(123),
+            dispatcher_3.clone(),
+            user_id,
+            3,
+        )
+        .await;
+    }
+    sleep(Duration::from_millis(100)).await;
+    assert_databases_are_equal();
+}
+
+#[actix_rt::test]
+#[serial]
+async fn two_dispatchers_two_discounts_different_accounts() {
+    clean_database_directory();
+
+    let cfg_1 = make_config(1, 2);
+    let cfg_2 = make_config(2, 2);
+
+    info!("Cfg1: {:#?}", cfg_1);
+    info!("Cfg2: {:#?}", cfg_2);
+
+    let dispatcher_1 = make_packet_dispatcher(&cfg_1);
+    dispatcher_1.do_send(Listen {});
+    let dispatcher_2 = make_packet_dispatcher(&cfg_2);
+    dispatcher_2.do_send(Listen {});
+    let user_id_1 = 456;
+    let user_id_2 = 789;
+    sleep(Duration::from_millis(100)).await;
+    discount(
+        make_server_id(1),
+        make_coffee_maker_id(123),
+        dispatcher_1.clone(),
+        user_id_1,
+        10,
+    )
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    discount(
+        make_server_id(2),
+        make_coffee_maker_id(123),
+        dispatcher_2.clone(),
+        user_id_2,
+        10,
+    )
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    assert_databases_are_equal();
 }

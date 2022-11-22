@@ -23,6 +23,7 @@ pub struct SyncResponsePacket {
     pub logs: HashMap<TransactionId, (TransactionState, Transaction)>,
 }
 
+/// Cada uno de los paquetes que se pueden enviar a través del [`PacketDispatcher`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Packet {
     Mutex(MutexPacket),
@@ -32,6 +33,7 @@ pub enum Packet {
 }
 
 impl SyncResponsePacket {
+    /// Convierte el paquete en un mensaje [`UpdateDatabaseMessage`].
     pub fn to_update_db_msg(self) -> UpdateDatabaseMessage {
         UpdateDatabaseMessage {
             snapshot_from: self.snapshot_from,

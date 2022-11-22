@@ -38,3 +38,9 @@ impl Display for ServerId {
         write!(f, "[ServerId {}]", self.ip)
     }
 }
+
+impl PartialOrd for ServerId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.to_string().cmp(&other.to_string()))
+    }
+}
