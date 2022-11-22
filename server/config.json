@@ -19,6 +19,7 @@
             "ip": "127.0.0.5"
         }
     ],
+    "add_points_interval_ms": 5000,
     "logs": {
         "files_directory": "logs",
         "file_log_level": "info",

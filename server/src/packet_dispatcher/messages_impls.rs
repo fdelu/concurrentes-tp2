@@ -6,7 +6,7 @@ use crate::packet_dispatcher::messages::{
     PruneMessage, QueuePointsMessage, SendMessage, TryAddPointsMessage,
 };
 use crate::packet_dispatcher::packet::Packet;
-use crate::packet_dispatcher::{TransactionId, ADD_POINTS_ATTEMPT_INTERVAL};
+use crate::packet_dispatcher::TransactionId;
 use crate::two_phase_commit::messages::{
     CommitCompleteMessage, CommitRequestMessage, ForwardDatabaseMessage,
 };
@@ -18,6 +18,7 @@ use crate::{Listen, PacketDispatcher, ServerId};
 use actix::prelude::*;
 use common::socket::{ReceivedPacket, SocketError};
 use std::collections::HashSet;
+use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
 impl Handler<BlockPointsMessage> for PacketDispatcher {
@@ -266,8 +267,9 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
         }
         .into_actor(self)
         .then(move |not_added_points, me, ctx| {
+            let next_attempt_duration = Duration::from_millis(me.config.add_points_interval_ms);
             me.points_queue.extend(not_added_points);
-            ctx.notify_later(TryAddPointsMessage, ADD_POINTS_ATTEMPT_INTERVAL);
+            ctx.notify_later(TryAddPointsMessage, next_attempt_duration);
             async {}.into_actor(me)
         })
         .boxed_local()
