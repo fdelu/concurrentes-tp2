@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 
 use actix::Message;
-#[cfg(not(test))]
+#[cfg(not(mocks))]
 use actix_rt::net::TcpStream;
-#[cfg(test)]
+#[cfg(mocks)]
 use common::socket::test_util::MockTcpStream as TcpStream;
 use serde::Serialize;
 

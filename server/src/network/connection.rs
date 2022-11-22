@@ -1,17 +1,17 @@
 use std::{future::Future, net::SocketAddr};
 
 use actix::{Actor, Addr, Recipient};
-#[cfg(test)]
+#[cfg(mocks)]
 use mockall::automock;
 use tokio::{
     task::{spawn, JoinHandle},
     time::Duration,
 };
 
-#[cfg(test)]
+#[cfg(mocks)]
 use common::socket::test_util::{MockSocket as Socket, MockStream as Stream};
 use common::socket::{PacketRecv, PacketSend, ReceivedPacket, SocketEnd, SocketError, SocketSend};
-#[cfg(not(test))]
+#[cfg(not(mocks))]
 use common::socket::{Socket, Stream};
 
 /// Maneja la conexión de un socket.
@@ -28,7 +28,7 @@ pub struct Connection<S: PacketSend, R: PacketRecv> {
     timeout: Option<Duration>,
 }
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(mocks, automock)]
 impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
     /// Crea una nueva conexión. Argumentos:
     /// - `stream`: [Stream] del [Socket].
@@ -83,7 +83,7 @@ impl<S: PacketSend, R: PacketRecv> Connection<S, R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(mocks)]
 pub mod test {
     use std::sync::{Mutex, MutexGuard};
 

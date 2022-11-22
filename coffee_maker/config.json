@@ -1,6 +1,6 @@
 {
     "order_from": "stdin",
-    "server_ip": "127.0.0.1:34255",
+    "server_ip": "127.0.0.2:34255",
     "logs": {
         "files_directory": "logs",
         "file_log_level": "info",

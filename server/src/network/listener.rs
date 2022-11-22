@@ -1,9 +1,9 @@
 use std::io;
 
 use actix::Recipient;
-#[cfg(test)]
+#[cfg(mocks)]
 use common::socket::test_util::MockTcpListener as TcpListener;
-#[cfg(not(test))]
+#[cfg(not(mocks))]
 use tokio::net::TcpListener;
 use tokio::{
     net::ToSocketAddrs,
@@ -13,7 +13,7 @@ use tracing::{debug, error, trace};
 
 use super::AddStream;
 use common::socket::SocketError;
-#[cfg(test)]
+#[cfg(mocks)]
 use mockall::automock;
 
 /// Loop que acepta conexiones de un [TcpListener] y
@@ -22,7 +22,7 @@ pub struct Listener {
     listener: TcpListener,
 }
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(mocks, automock)]
 impl Listener {
     /// Crea un nuevo Listener. Argumentos:
     /// - `addr`: Dirección en la cual escuchar.
@@ -67,7 +67,7 @@ impl Drop for Listener {
     }
 }
 
-#[cfg(test)]
+#[cfg(mocks)]
 pub mod test {
     use super::{MockListener as Listener, __mock_MockListener};
     use mockall::lazy_static;
