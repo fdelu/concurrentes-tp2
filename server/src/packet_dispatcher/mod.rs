@@ -27,6 +27,7 @@ use messages::TryAddPointsMessage;
 pub mod messages;
 pub mod messages_impls;
 pub mod packet;
+pub mod error;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(120);
 const ADD_POINTS_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);

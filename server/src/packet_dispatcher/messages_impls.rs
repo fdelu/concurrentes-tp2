@@ -16,7 +16,7 @@ use crate::{Listen, PacketDispatcher, ServerId};
 use actix::prelude::*;
 use common::socket::{ReceivedPacket, SocketError};
 use std::collections::HashSet;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 impl Handler<BlockPointsMessage> for PacketDispatcher {
     type Result = ResponseActFuture<Self, PacketDispatcherResult<()>>;
@@ -251,9 +251,12 @@ impl Handler<TryAddPointsMessage> for PacketDispatcher {
         async move {
             let mut not_added_points = vec![];
             for points in points_list {
-                if let Ok(Ok(())) = addr.send(points.to_add_points_msg()).await {
+                let result = addr.send(points.to_add_points_msg()).await;
+                if let Ok(Ok(())) = result {
                     debug!("Added points to user {}", points.id);
                 } else {
+                    warn!("Failed to add points to user {}", points.id);
+                    debug!("Error: {:?}", result);
                     not_added_points.push(points.clone());
                 }
             }
@@ -288,14 +291,14 @@ impl Handler<AddPointsMessage> for PacketDispatcher {
         let transaction_id = TransactionId::Add(server_id, new_transaction_value);
 
         async move {
-            send_commit_request(
+            make_add_points_commit(
                 transaction,
                 mutex.clone(),
                 tp_commit_addr.clone(),
+                connected_servers,
                 transaction_id,
             )
             .await?;
-            send_commit_complete(mutex, tp_commit_addr, connected_servers, transaction_id).await?;
             Ok(())
         }
         .into_actor(self)
@@ -303,45 +306,37 @@ impl Handler<AddPointsMessage> for PacketDispatcher {
     }
 }
 
-async fn send_commit_request(
+async fn make_add_points_commit(
     transaction: Transaction,
-    mutex: Addr<DistMutex<PacketDispatcher>>,
-    tp_commit_addr: Addr<TwoPhaseCommit<PacketDispatcher>>,
-    transaction_id: TransactionId,
-) -> Result<(), PacketDispatcherError> {
-    let action = move || {
-        tp_commit_addr.send(CommitRequestMessage {
-            id: transaction_id,
-            transaction,
-        })
-    };
-    let r = mutex.send(DoWithLock { action }).await;
-    match r {
-        Ok(Ok(Ok(Ok(true)))) => Ok(()),
-        _ => Err(PacketDispatcherError::IncreaseFailed),
-    }
-}
-
-async fn send_commit_complete(
     mutex: Addr<DistMutex<PacketDispatcher>>,
     tp_commit_addr: Addr<TwoPhaseCommit<PacketDispatcher>>,
     connected_servers: HashSet<ServerId>,
     transaction_id: TransactionId,
 ) -> Result<(), PacketDispatcherError> {
-    let action = move || {
-        tp_commit_addr.send(CommitCompleteMessage {
-            id: transaction_id,
-            connected_servers,
-        })
+    let action = move || async move {
+        info!("Requesting commit to add points tx. id {}", transaction_id);
+        let can_add = tp_commit_addr
+            .send(CommitRequestMessage {
+                id: transaction_id,
+                transaction,
+            })
+            .await??;
+        if !can_add
+            || tp_commit_addr
+                .send(CommitCompleteMessage {
+                    id: transaction_id,
+                    connected_servers,
+                })
+                .await?
+                .is_err()
+        {
+            return Err(PacketDispatcherError::IncreaseFailed);
+        }
+        info!("Add points commit for tx. id {} done", transaction_id);
+        Ok(())
     };
-    match mutex.send(DoWithLock { action }).await {
-        Ok(Ok(Ok(Ok(())))) => {
-            debug!("Transaction {} succeeded", transaction_id);
-            Ok(())
-        }
-        _ => {
-            error!("Transaction {} failed", transaction_id);
-            Err(PacketDispatcherError::IncreaseFailed)
-        }
+    match mutex.send(DoWithLock { action }).await? {
+        Err(_) => Err(PacketDispatcherError::IncreaseFailed),
+        Ok(result) => result,
     }
 }
